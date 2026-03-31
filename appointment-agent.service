@@ -1,0 +1,15 @@
+[Unit]
+Description=Appointment Agent — AI-powered scheduler and reminders
+After=network.target
+
+[Service]
+Type=simple
+# Replace with your actual username and paths
+ExecStart=/usr/bin/python3 %h/mcolgan79/cli.py start --morning 08:00 --evening 18:00
+WorkingDirectory=%h/mcolgan79
+Environment=ANTHROPIC_API_KEY=your_api_key_here
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

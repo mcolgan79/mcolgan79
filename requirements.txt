@@ -1,0 +1,5 @@
+anthropic>=0.40.0
+schedule>=1.2.0
+plyer>=2.1.0
+click>=8.1.0
+rich>=13.0.0
