@@ -14,6 +14,18 @@ BENCHMARK = "SPY"
 BETA_LOOKBACK = "1y"
 CORR_LOOKBACK = "6mo"
 
+# Tickers that yfinance doesn't carry directly.
+# Maps ticker -> (yfinance_symbol, price_multiplier)
+# e.g. XSP = 1/10 of SPX (^GSPC), beta vs SPY treated as 1.0
+TICKER_ALIASES: dict[str, tuple[str, float]] = {
+    "XSP":  ("^GSPC", 0.1),
+    "SPX":  ("^GSPC", 1.0),
+    "SPXW": ("^GSPC", 1.0),
+    "NDX":  ("^NDX",  1.0),
+    "RUT":  ("^RUT",  1.0),
+    "VIX":  ("^VIX",  1.0),
+}
+
 
 # ---------------------------------------------------------------------------
 # Market data helpers
@@ -21,13 +33,14 @@ CORR_LOOKBACK = "6mo"
 
 @lru_cache(maxsize=64)
 def get_stock_price(ticker: str) -> float:
-    """Fetch latest close price for a ticker."""
+    """Fetch latest close price for a ticker, handling index aliases."""
+    yt, mult = TICKER_ALIASES.get(ticker.upper(), (ticker, 1.0))
     try:
-        t = yf.Ticker(ticker)
+        t = yf.Ticker(yt)
         hist = t.history(period="5d")
         if hist.empty:
             return 0.0
-        return float(hist["Close"].iloc[-1])
+        return float(hist["Close"].iloc[-1]) * mult
     except Exception:
         return 0.0
 
@@ -35,7 +48,9 @@ def get_stock_price(ticker: str) -> float:
 @lru_cache(maxsize=64)
 def get_beta(ticker: str) -> float:
     """Compute beta vs SPY using 1-year daily returns."""
-    if ticker.upper() == BENCHMARK:
+    upper = ticker.upper()
+    # Index-based underlyings are by definition ~1.0 beta vs SPY
+    if upper in TICKER_ALIASES or upper == BENCHMARK:
         return 1.0
     try:
         data = yf.download(
