@@ -47,7 +47,7 @@ echo If it does not, go to: http://localhost:8501
 echo.
 echo ------------------------------------------------
 
-streamlit run "%~dp0app.py" --server.headless false
+python -m streamlit run "%~dp0app.py" --server.headless false
 
 echo.
 echo Dashboard stopped.
