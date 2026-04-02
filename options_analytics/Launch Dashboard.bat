@@ -11,43 +11,45 @@ echo Close it when you are done.
 echo.
 
 :: Check if Python is installed
-python --version >nul 2>&1
+echo Checking for Python...
+python --version
 if errorlevel 1 (
     color 0C
-    echo ERROR: Python is not installed.
+    echo.
+    echo ERROR: Python is not installed or not in PATH.
     echo.
     echo Please go to https://www.python.org/downloads/
     echo Download and run the installer.
-    echo.
-    echo IMPORTANT: Check the box that says
-    echo "Add Python to PATH" during installation!
+    echo IMPORTANT: Check "Add Python to PATH" during install!
     echo.
     pause
     exit /b 1
 )
 
-echo [1/2] Installing required packages...
-echo       (This only takes a moment on first run)
 echo.
-pip install -r "%~dp0requirements.txt" --quiet --disable-pip-version-check
+echo [1/2] Installing required packages...
+echo       (You will see output - this is normal)
+echo.
+python -m pip install -r "%~dp0requirements.txt" --disable-pip-version-check
 if errorlevel 1 (
     color 0C
     echo.
     echo ERROR: Failed to install packages.
+    echo Check the output above for details.
     echo Make sure you are connected to the internet.
     echo.
     pause
     exit /b 1
 )
 
-echo [2/2] Starting dashboard...
 echo.
+echo [2/2] Starting dashboard...
 echo Your browser will open automatically.
 echo If it does not, go to: http://localhost:8501
 echo.
 echo ------------------------------------------------
 
-python -m streamlit run "%~dp0app.py" --server.headless false
+python -m streamlit run "%~dp0app.py"
 
 echo.
 echo Dashboard stopped.
