@@ -312,7 +312,7 @@ with tab_pos:
                 "Gamma": "{:.4f}", "Theta": "{:.2f}", "Vega": "{:.2f}",
                 "Beta": "{:.2f}",
             })
-            .applymap(
+            .map(
                 lambda v: "color: red" if isinstance(v, (int, float)) and v < 0 else "",
                 subset=["Delta", "Theta"],
             ),
@@ -353,7 +353,7 @@ with tab_greeks:
             "Pos Delta": "{:+.2f}", "BW Delta": "{:+.2f}",
             "Pos Theta": "${:+.2f}", "Pos Gamma": "{:+.4f}",
             "Pos Vega": "${:+.2f}",
-        }).applymap(
+        }).map(
             lambda v: "color: green" if isinstance(v, (int, float)) and v > 0
             else ("color: red" if isinstance(v, (int, float)) and v < 0 else ""),
             subset=["BW Delta", "Pos Theta", "Pos Vega"],
@@ -496,7 +496,7 @@ with tab_scenario:
     total_pnl = scen_df["Est P&L"].sum()
 
     st.dataframe(
-        scen_df.style.format({"Est P&L": "${:+.2f}"}).applymap(
+        scen_df.style.format({"Est P&L": "${:+.2f}"}).map(
             lambda v: "color: green" if isinstance(v, (int, float)) and v > 0
             else ("color: red" if isinstance(v, (int, float)) and v < 0 else ""),
             subset=["Est P&L"],
