@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QTableWidget, QTableWidgetItem, QGroupBox, QHeaderView,
 )
-from .styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_NEUTRAL
+from ui.styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_NEUTRAL
 
 
 def _money(v: float) -> str:

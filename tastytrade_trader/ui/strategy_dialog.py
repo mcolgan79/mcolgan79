@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QSpinBox, QDoubleSpinBox, QGroupBox, QTabWidget, QWidget,
     QDialogButtonBox, QMessageBox,
 )
-from ..trading.strategy import StrategyConfig, StrategyType, StrategyStatus
+from trading.strategy import StrategyConfig, StrategyType, StrategyStatus
 
 
 class StrategyDialog(QDialog):

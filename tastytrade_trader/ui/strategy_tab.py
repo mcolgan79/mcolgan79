@@ -5,9 +5,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor
 
-from .strategy_dialog import StrategyDialog
-from ..trading.strategy import StrategyConfig, StrategyStatus
-from .styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_ACCENT
+from ui.strategy_dialog import StrategyDialog
+from trading.strategy import StrategyConfig, StrategyStatus
+from ui.styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_ACCENT
 
 
 class StrategyTab(QWidget):

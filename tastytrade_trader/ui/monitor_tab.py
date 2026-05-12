@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QColor
 from datetime import datetime
-from .styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_ACCENT, CLR_NEUTRAL
+from ui.styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_ACCENT, CLR_NEUTRAL
 
 
 class MonitorTab(QWidget):

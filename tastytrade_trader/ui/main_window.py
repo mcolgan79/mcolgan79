@@ -5,11 +5,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QAction
 
-from .dashboard_tab  import DashboardTab
-from .strategy_tab   import StrategyTab
-from .monitor_tab    import MonitorTab
-from .log_tab        import LogTab
-from .styles         import DARK_STYLE
+from ui.dashboard_tab  import DashboardTab
+from ui.strategy_tab   import StrategyTab
+from ui.monitor_tab    import MonitorTab
+from ui.log_tab        import LogTab
+from ui.styles         import DARK_STYLE
 
 
 class MainWindow(QMainWindow):

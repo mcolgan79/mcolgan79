@@ -14,8 +14,8 @@ from typing import Dict, List, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from .strategy import StrategyConfig, StrategyStatus, StrategyType
-from .risk_manager import RiskManager
+from trading.strategy import StrategyConfig, StrategyStatus, StrategyType
+from trading.risk_manager import RiskManager
 
 logger = logging.getLogger(__name__)
 

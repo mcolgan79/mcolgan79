@@ -9,7 +9,15 @@ Build Windows .exe:
 """
 
 import sys
+import os
 import logging
+
+# When frozen by PyInstaller (--onefile), _MEIPASS is the temp extraction dir.
+# Inserting it ensures absolute imports like "from trading.X" resolve correctly.
+if getattr(sys, "frozen", False):
+    sys.path.insert(0, sys._MEIPASS)
+else:
+    sys.path.insert(0, os.path.dirname(__file__))
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt

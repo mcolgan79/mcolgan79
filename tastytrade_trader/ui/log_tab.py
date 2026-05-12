@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QFileDialog, QLabel,
 )
 from PyQt6.QtGui import QColor
-from .styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_ACCENT
+from ui.styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_ACCENT
 
 _COLS = ["Time", "Order ID", "Strategy", "Symbol", "Type", "Description", "Price"]
 

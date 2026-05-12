@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from .strategy import StrategyConfig, StrategyType
+from trading.strategy import StrategyConfig, StrategyType
 
 logger = logging.getLogger(__name__)
 
