@@ -16,7 +16,7 @@ if errorlevel 1 (
 :: Build the executable
 echo.
 echo [2/3] Building Windows executable...
-pyinstaller ^
+python -m PyInstaller ^
     --onefile ^
     --windowed ^
     --name "TastyTradeTrader" ^
