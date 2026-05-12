@@ -200,6 +200,11 @@ class TradingEngine:
         # Gate: don't add more positions than allowed
         existing = self._positions_for(strategy, symbol)
         if len(existing) >= strategy.max_positions_per_underlying:
+            self._log(
+                f"SKIP [{strategy.name}] {symbol}: at max positions "
+                f"({len(existing)}/{strategy.max_positions_per_underlying})",
+                "DEBUG",
+            )
             return
 
         try:
@@ -222,8 +227,18 @@ class TradingEngine:
             if strategy.dte_min <= dte <= strategy.dte_max:
                 valid_exps.append((dte, exp))
 
+        self._log(
+            f"SCAN [{strategy.name}] {symbol}: chain has {len(chain.expirations)} expiration(s); "
+            f"looking for {strategy.dte_min}–{strategy.dte_max} DTE",
+            "INFO",
+        )
+
         if not valid_exps:
-            self._log(f"No expirations in {strategy.dte_min}–{strategy.dte_max} DTE for {symbol}", "DEBUG")
+            self._log(
+                f"SKIP [{strategy.name}] {symbol}: no expirations in "
+                f"{strategy.dte_min}–{strategy.dte_max} DTE window",
+                "WARNING",
+            )
             return
 
         # Choose expiration closest to the midpoint of the DTE window
@@ -231,7 +246,11 @@ class TradingEngine:
         valid_exps.sort(key=lambda x: abs(x[0] - target_dte))
         dte, best_exp = valid_exps[0]
 
-        self._log(f"Scanning {symbol} {best_exp.expiration_date} ({dte} DTE) for [{strategy.name}]", "INFO")
+        self._log(
+            f"SCAN [{strategy.name}] {symbol}: selected {best_exp.expiration_date} "
+            f"({dte} DTE) from {len(valid_exps)} valid expiration(s)",
+            "INFO",
+        )
 
         # Gather candidate OCC symbols by option type needed
         puts, calls = [], []
@@ -253,10 +272,32 @@ class TradingEngine:
 
         # Get live Greeks for all candidates
         all_occ = [occ for _, occ in puts] + [occ for _, occ in calls]
+        self._log(
+            f"SCAN [{strategy.name}] {symbol}: fetching Greeks for "
+            f"{len(puts)} put(s) and {len(calls)} call(s)",
+            "INFO",
+        )
         greeks_map = await self._fetch_greeks(all_occ)
+        self._log(
+            f"SCAN [{strategy.name}] {symbol}: received Greeks for {len(greeks_map)} contract(s)",
+            "INFO",
+        )
 
         best_put  = self._best_match(puts,  greeks_map, strategy.put_delta_target,  strategy.delta_tolerance, "put")
         best_call = self._best_match(calls, greeks_map, strategy.call_delta_target, strategy.delta_tolerance, "call")
+
+        if puts and best_put is None:
+            self._log(
+                f"SKIP [{strategy.name}] {symbol}: no put within δ"
+                f"{strategy.put_delta_target:.2f} ± {strategy.delta_tolerance:.2f}",
+                "WARNING",
+            )
+        if calls and best_call is None:
+            self._log(
+                f"SKIP [{strategy.name}] {symbol}: no call within δ"
+                f"{strategy.call_delta_target:.2f} ± {strategy.delta_tolerance:.2f}",
+                "WARNING",
+            )
 
         await self._build_and_place(strategy, symbol, best_exp.expiration_date, best_put, best_call, greeks_map)
 
@@ -372,7 +413,15 @@ class TradingEngine:
                 return
             strike, occ, delta = best_put
             price = await self._mid_price(occ)
-            if price is None or price < strategy.min_premium:
+            if price is None:
+                self._log(f"SKIP [{strategy.name}] {symbol}: could not price {occ}", "WARNING")
+                return
+            if price < strategy.min_premium:
+                self._log(
+                    f"SKIP [{strategy.name}] {symbol}: {occ} mid ${price:.2f} "
+                    f"< min premium ${strategy.min_premium:.2f}",
+                    "INFO",
+                )
                 return
             if st == StrategyType.BULL_PUT_SPREAD:
                 long_strike = strike - strategy.wing_width
@@ -393,7 +442,15 @@ class TradingEngine:
                 return
             strike, occ, delta = best_call
             price = await self._mid_price(occ)
-            if price is None or price < strategy.min_premium:
+            if price is None:
+                self._log(f"SKIP [{strategy.name}] {symbol}: could not price {occ}", "WARNING")
+                return
+            if price < strategy.min_premium:
+                self._log(
+                    f"SKIP [{strategy.name}] {symbol}: {occ} mid ${price:.2f} "
+                    f"< min premium ${strategy.min_premium:.2f}",
+                    "INFO",
+                )
                 return
             if st == StrategyType.BEAR_CALL_SPREAD:
                 long_strike = strike + strategy.wing_width
@@ -416,9 +473,15 @@ class TradingEngine:
             put_price  = await self._mid_price(put_occ)
             call_price = await self._mid_price(call_occ)
             if not put_price or not call_price:
+                self._log(f"SKIP [{strategy.name}] {symbol}: could not price legs", "WARNING")
                 return
             combined = put_price + call_price
             if combined < strategy.min_premium:
+                self._log(
+                    f"SKIP [{strategy.name}] {symbol}: combined mid ${combined:.2f} "
+                    f"< min premium ${strategy.min_premium:.2f}",
+                    "INFO",
+                )
                 return
             legs += [
                 _leg(put_occ,  OrderAction.SELL_TO_OPEN),
@@ -440,9 +503,15 @@ class TradingEngine:
             put_price  = await self._mid_price(put_occ)
             call_price = await self._mid_price(call_occ)
             if not put_price or not call_price:
+                self._log(f"SKIP [{strategy.name}] {symbol}: could not price IC legs", "WARNING")
                 return
             combined = put_price + call_price
             if combined < strategy.min_premium:
+                self._log(
+                    f"SKIP [{strategy.name}] {symbol}: IC combined mid ${combined:.2f} "
+                    f"< min premium ${strategy.min_premium:.2f}",
+                    "INFO",
+                )
                 return
             legs += [
                 _leg(put_occ,       OrderAction.SELL_TO_OPEN),

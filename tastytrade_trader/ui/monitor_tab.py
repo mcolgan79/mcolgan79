@@ -2,10 +2,19 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
+    QSplitter, QTextEdit,
 )
 from PyQt6.QtGui import QColor
 from datetime import datetime
 from ui.styles import CLR_POSITIVE, CLR_NEGATIVE, CLR_ACCENT, CLR_NEUTRAL
+
+_LOG_COLORS = {
+    "DEBUG":   "#555570",
+    "INFO":    "#a0e0a0",
+    "WARNING": "#f39c12",
+    "ERROR":   "#e94560",
+}
+_MAX_LOG_LINES = 500
 
 
 class MonitorTab(QWidget):
@@ -63,6 +72,8 @@ class MonitorTab(QWidget):
         strat_layout.addWidget(self.strat_table)
         layout.addWidget(strat_box)
 
+        splitter = QSplitter(Qt.Orientation.Vertical)
+
         # ---- Recent activity ---- #
         act_box = QGroupBox("Recent Activity (last 50 events)")
         act_layout = QVBoxLayout(act_box)
@@ -76,7 +87,36 @@ class MonitorTab(QWidget):
         self.activity_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.activity_table.verticalHeader().setVisible(False)
         act_layout.addWidget(self.activity_table)
-        layout.addWidget(act_box, stretch=1)
+        splitter.addWidget(act_box)
+
+        # ---- Engine log ---- #
+        log_box = QGroupBox("Engine Log")
+        log_layout = QVBoxLayout(log_box)
+        log_bar = QHBoxLayout()
+        self._log_line_count = 0
+        self._auto_scroll = True
+        scroll_chk_label = QLabel("Auto-scroll")
+        scroll_chk_label.setStyleSheet(f"color: {CLR_ACCENT}; font-size: 11px;")
+        self._scroll_btn = QPushButton("Auto-scroll: ON")
+        self._scroll_btn.setCheckable(True)
+        self._scroll_btn.setChecked(True)
+        self._scroll_btn.setFixedWidth(130)
+        self._scroll_btn.clicked.connect(self._toggle_scroll)
+        clear_btn = QPushButton("Clear")
+        clear_btn.setFixedWidth(70)
+        clear_btn.clicked.connect(self._clear_log)
+        log_bar.addWidget(self._scroll_btn)
+        log_bar.addStretch()
+        log_bar.addWidget(clear_btn)
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.document().setMaximumBlockCount(_MAX_LOG_LINES)
+        log_layout.addLayout(log_bar)
+        log_layout.addWidget(self.log_view)
+        splitter.addWidget(log_box)
+
+        splitter.setSizes([200, 300])
+        layout.addWidget(splitter, stretch=1)
 
         # Connections
         self.start_btn.clicked.connect(self._start_engine)
@@ -168,3 +208,25 @@ class MonitorTab(QWidget):
         # Keep only 50 rows
         while self.activity_table.rowCount() > 50:
             self.activity_table.removeRow(self.activity_table.rowCount() - 1)
+
+    def add_log_message(self, msg: str, level: str):
+        color = _LOG_COLORS.get(level, _LOG_COLORS["INFO"])
+        ts = datetime.now().strftime("%H:%M:%S")
+        # escape HTML special chars
+        safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        line = (
+            f'<span style="color:#555570">{ts}</span> '
+            f'<span style="color:{color};font-weight:bold">[{level}]</span> '
+            f'<span style="color:{color}">{safe}</span>'
+        )
+        self.log_view.append(line)
+        if self._auto_scroll:
+            sb = self.log_view.verticalScrollBar()
+            sb.setValue(sb.maximum())
+
+    def _toggle_scroll(self, checked: bool):
+        self._auto_scroll = checked
+        self._scroll_btn.setText("Auto-scroll: ON" if checked else "Auto-scroll: OFF")
+
+    def _clear_log(self):
+        self.log_view.clear()

@@ -114,6 +114,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"⚠  {msg}", 5000)
 
     def _on_log(self, msg: str, level: str):
+        self.monitor_tab.add_log_message(msg, level)
         if level in ("ERROR", "WARNING"):
             self.statusBar().showMessage(f"[{level}] {msg}", 4000)
 
