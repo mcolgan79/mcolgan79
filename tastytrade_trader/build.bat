@@ -13,9 +13,21 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
+:: Kill any running instance and remove the old exe so Windows releases the lock
+echo [2/3] Preparing build directory...
+taskkill /f /im TastyTradeTrader.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
+if exist dist\TastyTradeTrader.exe (
+    del /f /q dist\TastyTradeTrader.exe
+    if exist dist\TastyTradeTrader.exe (
+        echo ERROR: Cannot delete dist\TastyTradeTrader.exe - close the app and try again.
+        pause & exit /b 1
+    )
+)
+
 :: Build the executable
 echo.
-echo [2/3] Building Windows executable...
+echo [3/4] Building Windows executable...
 python -m PyInstaller ^
     --onefile ^
     --windowed ^
@@ -36,7 +48,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/3] Done!
+echo [4/4] Done!
 echo Executable: dist\TastyTradeTrader.exe
 echo.
 pause
