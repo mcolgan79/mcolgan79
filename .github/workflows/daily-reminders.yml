@@ -1,0 +1,38 @@
+name: Daily Calendar Reminders
+
+# Runs at 12:00 UTC = 7:00 AM EST (winter) / 8:00 AM EDT (summer, DST).
+# To always hit 7:00 AM ET, change the cron to '0 11 * * *' during EDT months
+# (mid-March through early November) and '0 12 * * *' the rest of the year.
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch: # allow manual test runs from the Actions tab
+
+jobs:
+  remind:
+    name: Send daily reminders
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Send daily calendar reminder
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TIMEZONE: America/New_York
+        run: python scripts/daily_reminders.py
