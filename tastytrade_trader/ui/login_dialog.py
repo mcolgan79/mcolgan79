@@ -6,9 +6,10 @@ from PyQt6.QtWidgets import (
 
 
 def _import_session(use_sandbox: bool):
-    """Return the appropriate tastytrade Session class, regardless of library version."""
+    """Return the appropriate tastytrade Session callable, regardless of library version."""
+    import functools
+
     if use_sandbox:
-        # Try the modern name first, fall back to the older API
         try:
             from tastytrade import CertificationSession
             return CertificationSession
@@ -19,17 +20,18 @@ def _import_session(use_sandbox: bool):
             return CertificationSession
         except ImportError:
             pass
-        # Absolute last resort: production session (user will see an auth error
-        # from tastytrade rather than a confusing ImportError)
-        from tastytrade import ProductionSession
-        return ProductionSession
+        # v8+: single Session class; pass is_test=True for sandbox
+        from tastytrade import Session
+        return functools.partial(Session, is_test=True)
     else:
         try:
             from tastytrade import ProductionSession
             return ProductionSession
         except ImportError:
-            from tastytrade import Session
-            return Session
+            pass
+        # v8+: single Session class; is_test defaults to False for production
+        from tastytrade import Session
+        return Session
 
 
 class LoginDialog(QDialog):
