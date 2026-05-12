@@ -204,9 +204,13 @@ class TradingEngine:
 
         try:
             from tastytrade.instruments import NestedOptionChain
-            chain = await asyncio.get_event_loop().run_in_executor(
-                None, NestedOptionChain.get, self.session, symbol
+            chains = await asyncio.get_event_loop().run_in_executor(
+                None, NestedOptionChain.get_chain, self.session, symbol
             )
+            if not chains:
+                self._log(f"No option chain returned for {symbol}", "WARNING")
+                return
+            chain = chains[0]
         except Exception as exc:
             self._log(f"Could not fetch chain for {symbol}: {exc}", "ERROR")
             return
