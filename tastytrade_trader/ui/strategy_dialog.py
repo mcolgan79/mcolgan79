@@ -82,9 +82,26 @@ class StrategyDialog(QDialog):
 
     # ------ Entry tab ------
 
+    # Which strategy types use each leg / parameter
+    _USES_PUTS = {
+        StrategyType.SHORT_PUT, StrategyType.BULL_PUT_SPREAD,
+        StrategyType.SHORT_STRANGLE, StrategyType.SHORT_STRADDLE,
+        StrategyType.IRON_CONDOR,
+    }
+    _USES_CALLS = {
+        StrategyType.SHORT_CALL, StrategyType.BEAR_CALL_SPREAD,
+        StrategyType.SHORT_STRANGLE, StrategyType.SHORT_STRADDLE,
+        StrategyType.IRON_CONDOR,
+    }
+    _USES_WING = {
+        StrategyType.BULL_PUT_SPREAD, StrategyType.BEAR_CALL_SPREAD,
+        StrategyType.IRON_CONDOR,
+    }
+
     def _build_entry_tab(self) -> QWidget:
         w = QWidget()
-        f = QFormLayout(w)
+        self._entry_form = QFormLayout(w)
+        f = self._entry_form
         f.setSpacing(10)
         f.setContentsMargins(14, 14, 14, 14)
 
@@ -105,14 +122,14 @@ class StrategyDialog(QDialog):
         self.put_delta_spin.setSingleStep(0.01)
         self.put_delta_spin.setDecimals(2)
         self.put_delta_spin.setValue(0.30)
-        f.addRow("Put delta target (|δ|):", self.put_delta_spin)
+        f.addRow("Short put δ target (|δ|):", self.put_delta_spin)
 
         self.call_delta_spin = QDoubleSpinBox()
         self.call_delta_spin.setRange(0.01, 0.99)
         self.call_delta_spin.setSingleStep(0.01)
         self.call_delta_spin.setDecimals(2)
         self.call_delta_spin.setValue(0.30)
-        f.addRow("Call delta target (|δ|):", self.call_delta_spin)
+        f.addRow("Short call δ target (|δ|):", self.call_delta_spin)
 
         self.delta_tol_spin = QDoubleSpinBox()
         self.delta_tol_spin.setRange(0.00, 0.20)
@@ -126,16 +143,58 @@ class StrategyDialog(QDialog):
         self.min_prem_spin.setPrefix("$")
         self.min_prem_spin.setDecimals(2)
         self.min_prem_spin.setValue(0.50)
-        f.addRow("Min premium:", self.min_prem_spin)
+        f.addRow("Min premium (total credit):", self.min_prem_spin)
 
         self.wing_spin = QDoubleSpinBox()
         self.wing_spin.setRange(1.0, 200.0)
         self.wing_spin.setPrefix("$")
         self.wing_spin.setSingleStep(1.0)
         self.wing_spin.setValue(5.0)
-        f.addRow("Wing/spread width:", self.wing_spin)
+        f.addRow("Spread width (long leg distance):", self.wing_spin)
+
+        # Update visibility whenever strategy type changes
+        self.type_combo.currentIndexChanged.connect(self._update_entry_fields)
+        self._update_entry_fields()
 
         return w
+
+    def _update_entry_fields(self):
+        st = self.type_combo.currentData()
+        f = self._entry_form
+
+        show_put  = st in self._USES_PUTS
+        show_call = st in self._USES_CALLS
+        show_wing = st in self._USES_WING
+
+        f.setRowVisible(self.put_delta_spin,  show_put)
+        f.setRowVisible(self.call_delta_spin, show_call)
+        f.setRowVisible(self.wing_spin,       show_wing)
+
+        # Relabel put delta row to reflect its role in this strategy
+        put_label = f.labelForField(self.put_delta_spin)
+        if put_label:
+            if st == StrategyType.SHORT_STRADDLE:
+                put_label.setText("ATM delta target (|δ|):")
+            elif st in (StrategyType.SHORT_STRANGLE, StrategyType.IRON_CONDOR):
+                put_label.setText("Put δ target (|δ|):")
+            else:
+                put_label.setText("Short put δ target (|δ|):")
+
+        call_label = f.labelForField(self.call_delta_spin)
+        if call_label:
+            if st == StrategyType.SHORT_STRADDLE:
+                call_label.setText("Call δ target (|δ|):")
+            elif st in (StrategyType.SHORT_STRANGLE, StrategyType.IRON_CONDOR):
+                call_label.setText("Call δ target (|δ|):")
+            else:
+                call_label.setText("Short call δ target (|δ|):")
+
+        wing_label = f.labelForField(self.wing_spin)
+        if wing_label:
+            if st == StrategyType.IRON_CONDOR:
+                wing_label.setText("Wing width (each side):")
+            else:
+                wing_label.setText("Spread width (long leg distance):")
 
     # ------ Exit tab ------
 
