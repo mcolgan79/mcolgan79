@@ -412,6 +412,7 @@ class TradingEngine:
             if not best_put:
                 return
             strike, occ, delta = best_put
+            self._log(f"MATCH [{strategy.name}] {symbol}: put {strike} δ{delta:.3f} → {occ}", "INFO")
             price = await self._mid_price(occ)
             if price is None:
                 self._log(f"SKIP [{strategy.name}] {symbol}: could not price {occ}", "WARNING")
@@ -427,6 +428,11 @@ class TradingEngine:
                 long_strike = strike - strategy.wing_width
                 long_occ    = self._find_occ_for_strike(greeks_map, long_strike, "put")
                 if not long_occ:
+                    self._log(
+                        f"SKIP [{strategy.name}] {symbol}: no long put found near strike {long_strike} "
+                        f"(wing width {strategy.wing_width})",
+                        "WARNING",
+                    )
                     return
                 legs += [_leg(occ, OrderAction.SELL_TO_OPEN), _leg(long_occ, OrderAction.BUY_TO_OPEN)]
                 max_risk    = strategy.wing_width * 100 * strategy.max_contracts
@@ -441,6 +447,7 @@ class TradingEngine:
             if not best_call:
                 return
             strike, occ, delta = best_call
+            self._log(f"MATCH [{strategy.name}] {symbol}: call {strike} δ{delta:.3f} → {occ}", "INFO")
             price = await self._mid_price(occ)
             if price is None:
                 self._log(f"SKIP [{strategy.name}] {symbol}: could not price {occ}", "WARNING")
@@ -456,6 +463,11 @@ class TradingEngine:
                 long_strike = strike + strategy.wing_width
                 long_occ    = self._find_occ_for_strike(greeks_map, long_strike, "call")
                 if not long_occ:
+                    self._log(
+                        f"SKIP [{strategy.name}] {symbol}: no long call found near strike {long_strike} "
+                        f"(wing width {strategy.wing_width})",
+                        "WARNING",
+                    )
                     return
                 legs += [_leg(occ, OrderAction.SELL_TO_OPEN), _leg(long_occ, OrderAction.BUY_TO_OPEN)]
                 max_risk    = strategy.wing_width * 100 * strategy.max_contracts
@@ -499,6 +511,11 @@ class TradingEngine:
             put_long_occ  = self._find_occ_for_strike(greeks_map, put_strike  - strategy.wing_width, "put")
             call_long_occ = self._find_occ_for_strike(greeks_map, call_strike + strategy.wing_width, "call")
             if not put_long_occ or not call_long_occ:
+                self._log(
+                    f"SKIP [{strategy.name}] {symbol}: IC long leg(s) not found "
+                    f"(put_long={put_long_occ}, call_long={call_long_occ})",
+                    "WARNING",
+                )
                 return
             put_price  = await self._mid_price(put_occ)
             call_price = await self._mid_price(call_occ)
@@ -683,10 +700,25 @@ class TradingEngine:
         return None
 
     def _find_occ_for_strike(self, greeks_map: dict, target_strike: float, side: str) -> Optional[str]:
-        """Find the OCC symbol in greeks_map closest to target_strike."""
-        # We don't have the full chain here; this is a simplification.
-        # In production you'd pass the chain strikes alongside the greeks_map.
-        return None  # implemented via chain lookup in extended version
+        """Find the OCC symbol in greeks_map whose strike is closest to target_strike."""
+        type_char = "P" if side == "put" else "C"
+        best_occ = None
+        best_diff = float("inf")
+        for occ in greeks_map:
+            stripped = occ.strip()
+            if len(stripped) < 21:
+                continue
+            if stripped[12].upper() != type_char:
+                continue
+            try:
+                strike = int(stripped[13:21]) / 1000.0
+            except ValueError:
+                continue
+            diff = abs(strike - target_strike)
+            if diff < best_diff:
+                best_diff = diff
+                best_occ = occ
+        return best_occ
 
     def _positions_for(self, strategy: StrategyConfig, symbol: str) -> List[dict]:
         return [
