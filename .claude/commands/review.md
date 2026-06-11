@@ -14,8 +14,12 @@ rails are never adjustable here.
    source of truth; fix the journal if they disagree.
 2. Analyze: win rate, average credit / collateral, annualized return on
    collateral, max single-trade loss, and how losses happened (gap risk vs.
-   slow bleed vs. early entries). Fewer than 10 closed trades → report stats
-   but make NO parameter changes (insufficient sample).
+   slow bleed vs. early entries). Day trades (small-account mode) are
+   reported separately: win rate, total P&L, and P&L by exit reason
+   (target/stop/time) — only `daytrade.target_pct` and `daytrade.stop_pct`
+   are tunable, within bounds. Fewer than 10 closed trades in a category →
+   report stats but make NO parameter changes for that category
+   (insufficient sample).
 3. If the evidence clearly supports it, make at most one bounded adjustment
    (e.g. persistent losers at high delta → lower delta_target one step;
    profit targets rarely hit before manage_at_dte → lower profit_target_pct).

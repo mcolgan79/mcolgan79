@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 JOURNAL = Path(__file__).resolve().parent.parent / "journal" / "trades.csv"
+DAYTRADE_JOURNAL = Path(__file__).resolve().parent.parent / "journal" / "daytrades.csv"
 
 
 def f(row, key):
@@ -13,12 +14,40 @@ def f(row, key):
     return float(v) if v else 0.0
 
 
+def daytrade_report():
+    if not DAYTRADE_JOURNAL.exists():
+        return
+    with open(DAYTRADE_JOURNAL, newline="") as fh:
+        trades = list(csv.DictReader(fh))
+    if not trades:
+        return
+
+    print("\n== Day trades ==")
+    closed = [t for t in trades if t["status"] == "closed" and (t.get("pnl") or "").strip()]
+    open_t = [t for t in trades if t["status"] == "open"]
+    print(f"Round trips: {len(closed)} closed, {len(open_t)} open")
+    if closed:
+        pnls = [f(t, "pnl") for t in closed]
+        wins = [p for p in pnls if p > 0]
+        print(f"Realized P&L: ${sum(pnls):,.2f}")
+        print(f"Win rate: {len(wins)}/{len(pnls)} ({100 * len(wins) / len(pnls):.0f}%)")
+        print(f"Worst trade: ${min(pnls):,.2f}")
+        by_reason = {}
+        for t in closed:
+            by_reason.setdefault(t.get("exit_reason") or "unknown", []).append(f(t, "pnl"))
+        for reason, ps in sorted(by_reason.items()):
+            print(f"  exit={reason}: {len(ps)} trades, ${sum(ps):,.2f}")
+    for t in open_t:
+        print(f"  OPEN: {t['symbol']} x{t['quantity']} @ {t['entry_price']} ({t['date']})")
+
+
 def main():
     with open(JOURNAL, newline="") as fh:
         trades = list(csv.DictReader(fh))
 
     if not trades:
-        print("No trades in journal yet.")
+        print("No option trades in journal yet.")
+        daytrade_report()
         return
 
     open_t = [t for t in trades if t["status"] == "open"]
@@ -55,6 +84,8 @@ def main():
         print(f"Open: ${coll:,.2f} collateral deployed, ${cred:,.2f} credit collected")
         for t in open_t:
             print(f"  {t['symbol']} {t['strategy']} {t['strike']} exp {t['expiration']}")
+
+    daytrade_report()
 
 
 if __name__ == "__main__":

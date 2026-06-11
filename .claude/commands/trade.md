@@ -2,9 +2,14 @@
 description: Run one full wheel-strategy trading cycle on the Agentic Robinhood account
 ---
 
-Execute one trading cycle of the wheel strategy. The authoritative rules are
-in `wheel-trader/STRATEGY.md`; all numeric parameters come from
-`wheel-trader/config/params.json`. Read both before doing anything else.
+Execute one trading cycle. The authoritative rules are in
+`wheel-trader/STRATEGY.md` (wheel mode) and `wheel-trader/DAYTRADE.md`
+(small-account mode); all numeric parameters come from
+`wheel-trader/config/params.json`. Read all three before doing anything else.
+
+Mode selection: if account value < `modes.daytrade_below_usd`, Phase 2 runs
+the day-trade cycle (Phase 2D) instead of new wheel entries. Phase 1
+(management of existing option positions) always runs regardless of mode.
 
 The account owner has given standing authorization for orders placed under
 these rules: do NOT pause to ask per-order confirmation, but you MUST run
@@ -16,13 +21,15 @@ one used for selection. Single-leg cash-secured puts and covered calls only.
 
 1. If a file named `HALT` exists at the repo root, or `halt` is true in
    params.json, stop immediately and report "halted".
-2. `get_accounts`: confirm the configured account is `agentic_allowed=true`
-   and has `option_level_2` or `option_level_3`. If options are not enabled,
-   stop and tell the user to apply at
+2. `get_accounts`: confirm the configured account is `agentic_allowed=true`.
+   For wheel mode it must also have `option_level_2` or `option_level_3`; if
+   options are not enabled, day-trade mode may still run — note the upgrade
+   link for the user:
    https://applink.robinhood.com/upgrade_options?account_number=465026961
-3. `get_portfolio`: record account value, cash, buying power. If buying power
-   < $500, note that no new entries are possible (management of existing
-   positions still proceeds).
+3. `get_portfolio`: record account value, cash, buying power, and select the
+   mode (wheel vs. day-trade) per `modes.daytrade_below_usd`. If account
+   value < `daytrade.account_floor_usd`, create the `HALT` file, commit it,
+   and stop — the system shuts itself off pending a human decision.
 4. Check whether US markets are open today (weekday, not a market holiday).
    If closed, log and stop.
 
@@ -42,7 +49,7 @@ one used for selection. Single-leg cash-secured puts and covered calls only.
    take, manage_at_dte, loss management), placing buy-to-close limit orders
    per the order protocol in §6.
 
-## Phase 2 — New entries
+## Phase 2 — New entries (wheel mode: account value ≥ modes.daytrade_below_usd)
 
 1. Compute the collateral budget from sizing rules (§5). If no budget, skip.
 2. Build the candidate list (§1): start from liquid, high-quality underlyings
@@ -59,9 +66,27 @@ one used for selection. Single-leg cash-secured puts and covered calls only.
    the open order fills (check before run end, or next run), place a GTC
    buy-to-close limit at (1 − profit_target_pct/100) × credit.
 
+## Phase 2D — Day-trade cycle (small-account mode)
+
+Follow `wheel-trader/DAYTRADE.md` exactly. In brief:
+
+1. Reconcile any open stock position and today's equity orders
+   (`get_equity_positions`, `get_equity_orders`) against
+   `wheel-trader/journal/daytrades.csv`.
+2. If holding: enforce the stop, the profit target, and the
+   `daytrade.exit_by_et` flat-by-close rule.
+3. If flat, inside the entry window, no trade taken today, and the daily-loss
+   halt is not tripped: screen per DAYTRADE.md, then `review_equity_order` →
+   check alerts → `place_equity_order` (limit at ask, GFD). After fill,
+   immediately place a GFD limit sell at the target price.
+4. Buy only with settled cash; never re-buy with same-day sale proceeds.
+5. Remind the user this mode needs intraday runs (`/loop 30m /trade`) — a
+   single run cannot manage a position.
+
 ## Phase 3 — Journal, commit, report
 
-1. Append/update rows in `wheel-trader/journal/trades.csv` for every action.
+1. Append/update rows in `wheel-trader/journal/trades.csv` (options) and
+   `wheel-trader/journal/daytrades.csv` (stocks) for every action.
 2. Write a run log to `wheel-trader/journal/runs/YYYY-MM-DD.md`: portfolio
    snapshot, actions taken, orders placed (with review-alert summaries),
    candidates considered and why rejected, and anything needing human eyes.

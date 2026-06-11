@@ -15,7 +15,18 @@ commands) that Claude executes deterministically against live market data:
 | `/trade`  | Full daily cycle: manage open positions, take profits, handle assignment, open new positions per the rules, update the journal, commit + push. |
 | `/review` | Weekly: compute performance stats from the journal and tune strategy parameters **within hard bounds**, logging every change. |
 
-All rules live in [`STRATEGY.md`](STRATEGY.md). All tunable numbers live in
+The system has two modes, selected automatically by account value:
+
+| Account value | Mode | Rules |
+|---|---|---|
+| ≥ $500 | Wheel: cash-secured puts → covered calls | [`STRATEGY.md`](STRATEGY.md) |
+| < $500 | Small-account: one bounded intraday stock trade per day, flat by close | [`DAYTRADE.md`](DAYTRADE.md) |
+
+Small-account mode needs no options approval, so it can run before setup
+step 1 below is complete — but it needs intraday runs (`/loop 30m /trade`)
+since a single daily run cannot manage an open day trade.
+
+Wheel rules live in [`STRATEGY.md`](STRATEGY.md). All tunable numbers live in
 [`config/params.json`](config/params.json). Every trade is logged to
 [`journal/trades.csv`](journal/trades.csv) and committed to git, so the full
 history is auditable.

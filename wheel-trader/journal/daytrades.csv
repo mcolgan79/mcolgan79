@@ -1,0 +1,1 @@
+trade_id,date,symbol,quantity,entry_price,exit_price,entry_order_id,exit_order_id,status,exit_reason,pnl,notes
