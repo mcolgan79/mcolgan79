@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { DistributionChart } from './components/DistributionChart'
 import { GreeksTable } from './components/GreeksTable'
 import {
@@ -6,16 +6,29 @@ import {
   TEMPLATES,
   type FormState,
   type LegForm,
+  type MarketView,
 } from './components/InputsPanel'
+import { LiveDataPanel } from './components/LiveDataPanel'
 import { PayoffChart } from './components/PayoffChart'
 import { Recommendations } from './components/Recommendations'
 import { StatTiles } from './components/StatTiles'
 import { analyze } from './lib/analyze'
 import { bsPrice } from './lib/black-scholes'
 import { recommend } from './lib/recommend'
+import {
+  dteFrom,
+  fetchChain,
+  fetchExpirations,
+  fetchQuote,
+  type Chain,
+  type TradierConfig,
+  type UnderlyingQuote,
+} from './lib/tradier'
 import type { Leg, Strategy } from './lib/types'
 
 const STORAGE_KEY = 'optpop-form-v2'
+const TRADIER_KEY = 'optpop-tradier'
+const SYMBOL_KEY = 'optpop-symbol'
 
 const DEFAULT_FORM: FormState = {
   S: 100,
@@ -40,6 +53,7 @@ function migrateV1(): FormState | null {
       ivPct: v1.ivPct ?? 30,
       premium: v1.solve === 'iv' && typeof v1.premium === 'number' ? v1.premium : null,
       qty: 1,
+      expiration: null,
     }
     return {
       S: v1.S,
@@ -59,13 +73,27 @@ function loadForm(): FormState {
     if (saved) {
       const parsed = JSON.parse(saved) as FormState
       if (Array.isArray(parsed.legs) && parsed.legs.length > 0) {
-        return { ...DEFAULT_FORM, ...parsed }
+        return {
+          ...DEFAULT_FORM,
+          ...parsed,
+          legs: parsed.legs.map((l) => ({ ...l, expiration: l.expiration ?? null })),
+        }
       }
     }
   } catch {
     /* fall through */
   }
   return migrateV1() ?? DEFAULT_FORM
+}
+
+function loadTradier(): TradierConfig {
+  try {
+    const saved = localStorage.getItem(TRADIER_KEY)
+    if (saved) return { token: '', sandbox: true, ...JSON.parse(saved) }
+  } catch {
+    /* fall through */
+  }
+  return { token: '', sandbox: true }
 }
 
 function useTheme(): ['light' | 'dark' | 'auto', () => void] {
@@ -90,10 +118,109 @@ export default function App() {
   const [form, setForm] = useState<FormState>(loadForm)
   const [theme, cycleTheme] = useTheme()
 
+  // ----- live data -----
+  const [tradier, setTradier] = useState<TradierConfig>(loadTradier)
+  const [symbol, setSymbol] = useState(() => localStorage.getItem(SYMBOL_KEY) ?? '')
+  const [quote, setQuote] = useState<UnderlyingQuote | null>(null)
+  const [expirations, setExpirations] = useState<string[]>([])
+  const [chains, setChains] = useState<Record<string, Chain>>({})
+  const [marketLoading, setMarketLoading] = useState(false)
+  const [marketError, setMarketError] = useState<string | null>(null)
+  const chainRequests = useRef(new Set<string>())
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(form))
   }, [form])
+  useEffect(() => {
+    localStorage.setItem(TRADIER_KEY, JSON.stringify(tradier))
+  }, [tradier])
+  useEffect(() => {
+    localStorage.setItem(SYMBOL_KEY, symbol)
+  }, [symbol])
 
+  const connect = useCallback(async () => {
+    setMarketLoading(true)
+    setMarketError(null)
+    try {
+      const [q, exps] = await Promise.all([
+        fetchQuote(tradier, symbol),
+        fetchExpirations(tradier, symbol),
+      ])
+      setQuote(q)
+      setExpirations(exps)
+      setChains({})
+      chainRequests.current.clear()
+      setForm((f) => ({
+        ...f,
+        S: q.last,
+        legs: f.legs.map((l) => ({ ...l, expiration: null })),
+      }))
+    } catch (e) {
+      setMarketError(e instanceof Error ? e.message : String(e))
+      setQuote(null)
+      setExpirations([])
+    } finally {
+      setMarketLoading(false)
+    }
+  }, [tradier, symbol])
+
+  const ensureChain = useCallback(
+    (expiration: string) => {
+      if (chainRequests.current.has(expiration)) return
+      chainRequests.current.add(expiration)
+      fetchChain(tradier, symbol, expiration)
+        .then((chain) => setChains((c) => ({ ...c, [expiration]: chain })))
+        .catch((e) => {
+          chainRequests.current.delete(expiration)
+          setMarketError(e instanceof Error ? e.message : String(e))
+        })
+    },
+    [tradier, symbol],
+  )
+
+  const refresh = useCallback(async () => {
+    if (!quote) return
+    setMarketLoading(true)
+    setMarketError(null)
+    try {
+      const q = await fetchQuote(tradier, symbol)
+      setQuote(q)
+      const used = [...new Set(form.legs.map((l) => l.expiration).filter(Boolean))] as string[]
+      const updated: Record<string, Chain> = {}
+      for (const exp of used) {
+        updated[exp] = await fetchChain(tradier, symbol, exp)
+      }
+      setChains((c) => ({ ...c, ...updated }))
+      // re-mark linked legs to the fresh chain
+      setForm((f) => ({
+        ...f,
+        S: q.last,
+        legs: f.legs.map((l) => {
+          if (!l.expiration || !updated[l.expiration]) return l
+          const row = updated[l.expiration].options.find(
+            (o) => o.type === l.type && o.strike === l.K,
+          )
+          if (!row) return l
+          return {
+            ...l,
+            dte: dteFrom(l.expiration),
+            premium: row.mid ?? l.premium,
+            ivPct: row.iv ? Math.round(row.iv * 1000) / 10 : l.ivPct,
+          }
+        }),
+      }))
+    } catch (e) {
+      setMarketError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setMarketLoading(false)
+    }
+  }, [tradier, symbol, quote, form.legs])
+
+  const market: MarketView | null = quote
+    ? { expirations, chains, ensureChain }
+    : null
+
+  // ----- model -----
   const strategy: Strategy = useMemo(() => {
     const r = form.rPct / 100
     const q = form.qPct / 100
@@ -143,32 +270,46 @@ export default function App() {
       </header>
 
       <div className="layout">
-        <InputsPanel
-          form={form}
-          resolvedLegs={strategy.legs}
-          onGlobal={(patch) => setForm((f) => ({ ...f, ...patch }))}
-          onLeg={(i, patch) =>
-            setForm((f) => ({
-              ...f,
-              legs: f.legs.map((l, j) => (j === i ? { ...l, ...patch } : l)),
-            }))
-          }
-          onAddLeg={() =>
-            setForm((f) => ({
-              ...f,
-              legs: [
-                ...f.legs,
-                { ...f.legs[f.legs.length - 1], side: 'long' as const, premium: null },
-              ],
-            }))
-          }
-          onRemoveLeg={(i) =>
-            setForm((f) => ({ ...f, legs: f.legs.filter((_, j) => j !== i) }))
-          }
-          onTemplate={(name) =>
-            setForm((f) => ({ ...f, legs: TEMPLATES[name](f.S) }))
-          }
-        />
+        <div className="sidebar">
+          <LiveDataPanel
+            config={tradier}
+            onConfig={(patch) => setTradier((c) => ({ ...c, ...patch }))}
+            symbol={symbol}
+            onSymbol={setSymbol}
+            quote={quote}
+            loading={marketLoading}
+            error={marketError}
+            onConnect={connect}
+            onRefresh={refresh}
+          />
+          <InputsPanel
+            form={form}
+            resolvedLegs={strategy.legs}
+            market={market}
+            onGlobal={(patch) => setForm((f) => ({ ...f, ...patch }))}
+            onLeg={(i, patch) =>
+              setForm((f) => ({
+                ...f,
+                legs: f.legs.map((l, j) => (j === i ? { ...l, ...patch } : l)),
+              }))
+            }
+            onAddLeg={() =>
+              setForm((f) => ({
+                ...f,
+                legs: [
+                  ...f.legs,
+                  { ...f.legs[f.legs.length - 1], side: 'long' as const, premium: null },
+                ],
+              }))
+            }
+            onRemoveLeg={(i) =>
+              setForm((f) => ({ ...f, legs: f.legs.filter((_, j) => j !== i) }))
+            }
+            onTemplate={(name) =>
+              setForm((f) => ({ ...f, legs: TEMPLATES[name](f.S) }))
+            }
+          />
+        </div>
         <main className="content" style={{ opacity: deferredStrategy === strategy ? 1 : 0.6 }}>
           <StatTiles st={deferredStrategy} a={analysis} />
           <PayoffChart st={deferredStrategy} a={analysis} />
@@ -179,8 +320,10 @@ export default function App() {
             All probabilities assume lognormal (Black–Scholes) dynamics at the position's
             vega-weighted IV with risk-neutral drift; longer-dated legs are marked to model
             at the front expiration assuming their IVs hold; P50 uses a seeded Monte Carlo
-            with daily marks. Models simplify reality — this tool is for education, not
-            investment advice.
+            with daily marks. Market data, when connected, is provided by Tradier under
+            your own API key and may be delayed. Models simplify reality — OptPoP is for
+            education and analysis only and is not investment advice, a recommendation, or
+            an offer to buy or sell any security.
           </p>
         </main>
       </div>

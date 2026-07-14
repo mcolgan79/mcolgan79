@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { dteFrom, type Chain } from '../lib/tradier'
 import type { Leg, OptionType, Side } from '../lib/types'
 
 export interface LegForm {
@@ -10,6 +11,8 @@ export interface LegForm {
   /** null = use the Black–Scholes model price */
   premium: number | null
   qty: number
+  /** ISO expiration date when the leg is linked to a live chain */
+  expiration: string | null
 }
 
 export interface FormState {
@@ -18,6 +21,13 @@ export interface FormState {
   qPct: number
   contracts: number
   legs: LegForm[]
+}
+
+/** Live-chain data the leg pickers draw from (null = manual mode). */
+export interface MarketView {
+  expirations: string[]
+  chains: Record<string, Chain>
+  ensureChain: (expiration: string) => void
 }
 
 /** Round a strike to an increment that suits the underlying's price. */
@@ -34,6 +44,7 @@ const baseLeg = (over: Partial<LegForm>): LegForm => ({
   ivPct: 30,
   premium: null,
   qty: 1,
+  expiration: null,
   ...over,
 })
 
@@ -71,11 +82,10 @@ interface NumFieldProps {
   max?: number
   step?: number
   disabled?: boolean
-  placeholder?: string
 }
 
 /** Numeric input that tolerates in-progress typing ("1.", "") without snapping. */
-function NumField({ label, value, onChange, min, max, step, disabled, placeholder }: NumFieldProps) {
+function NumField({ label, value, onChange, min, max, step, disabled }: NumFieldProps) {
   const [text, setText] = useState(String(value))
   const [focused, setFocused] = useState(false)
   useEffect(() => {
@@ -93,7 +103,6 @@ function NumField({ label, value, onChange, min, max, step, disabled, placeholde
           max={max}
           step={step ?? 'any'}
           disabled={disabled}
-          placeholder={placeholder}
           onFocus={() => setFocused(true)}
           onBlur={() => {
             setFocused(false)
@@ -116,6 +125,7 @@ interface Props {
   form: FormState
   /** Legs with premiums resolved (model price where the form says auto) */
   resolvedLegs: Leg[]
+  market: MarketView | null
   onGlobal: (patch: Partial<Omit<FormState, 'legs'>>) => void
   onLeg: (index: number, patch: Partial<LegForm>) => void
   onAddLeg: () => void
@@ -126,6 +136,7 @@ interface Props {
 export function InputsPanel({
   form,
   resolvedLegs,
+  market,
   onGlobal,
   onLeg,
   onAddLeg,
@@ -170,6 +181,9 @@ export function InputsPanel({
         {form.legs.map((legForm, i) => {
           const resolved = resolvedLegs[i]
           const auto = legForm.premium === null
+          const chain = legForm.expiration ? market?.chains[legForm.expiration] : undefined
+          const chainRows = chain?.options.filter((o) => o.type === legForm.type) ?? []
+          const strikeInChain = chainRows.some((o) => o.strike === legForm.K)
           return (
             <div className="leg-card" key={i}>
               <div className="leg-head">
@@ -200,6 +214,69 @@ export function InputsPanel({
                   </button>
                 ) : null}
               </div>
+
+              {market ? (
+                <div className="grid-2">
+                  <div className="field">
+                    <label>
+                      Expiration
+                      <select
+                        className="template-select"
+                        value={legForm.expiration ?? ''}
+                        onChange={(e) => {
+                          const exp = e.target.value || null
+                          onLeg(i, {
+                            expiration: exp,
+                            ...(exp ? { dte: dteFrom(exp) } : {}),
+                          })
+                          if (exp) market.ensureChain(exp)
+                        }}
+                      >
+                        <option value="">manual DTE</option>
+                        {market.expirations.map((d) => (
+                          <option key={d} value={d}>
+                            {d} ({dteFrom(d)}d)
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="field">
+                    <label>
+                      Chain strike
+                      <select
+                        className="template-select"
+                        value={strikeInChain ? String(legForm.K) : ''}
+                        disabled={!legForm.expiration || !chain}
+                        onChange={(e) => {
+                          const row = chainRows.find((o) => String(o.strike) === e.target.value)
+                          if (!row) return
+                          onLeg(i, {
+                            K: row.strike,
+                            premium: row.mid,
+                            ...(row.iv ? { ivPct: Math.round(row.iv * 1000) / 10 } : {}),
+                          })
+                        }}
+                      >
+                        <option value="">
+                          {!legForm.expiration
+                            ? 'pick expiration'
+                            : !chain
+                              ? 'loading chain…'
+                              : 'pick strike'}
+                        </option>
+                        {chainRows.map((o) => (
+                          <option key={o.strike} value={o.strike}>
+                            {o.strike} · mid {o.mid?.toFixed(2) ?? '—'}
+                            {o.iv ? ` · IV ${(o.iv * 100).toFixed(0)}%` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="grid-2">
                 <NumField label="Strike" value={legForm.K} min={0.01} onChange={(K) => onLeg(i, { K })} />
                 <NumField
@@ -208,7 +285,7 @@ export function InputsPanel({
                   min={1}
                   max={1500}
                   step={1}
-                  onChange={(dte) => onLeg(i, { dte })}
+                  onChange={(dte) => onLeg(i, { dte, expiration: null })}
                 />
               </div>
               <div className="grid-2">
@@ -262,7 +339,7 @@ export function InputsPanel({
         </details>
         <p className="derived">
           Premiums default to the Black–Scholes price for each leg's IV — type a market
-          price to override; “↺ use model price” reverts.
+          price (or pick from a live chain) to override; “↺ use model price” reverts.
         </p>
       </div>
     </div>

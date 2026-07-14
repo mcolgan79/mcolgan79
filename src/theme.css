@@ -156,11 +156,73 @@ body {
   display: grid;
   gap: 12px;
 }
-@media (min-width: 861px) {
-  .inputs-card {
-    position: sticky;
-    top: 16px;
-  }
+.sidebar {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+}
+
+/* ---------- Live data ---------- */
+.live-status {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.live-row {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+}
+.live-row input[type='text'] {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  width: 100%;
+  text-transform: uppercase;
+}
+.live-row input[type='text']:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.connect-btn {
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+  flex: none;
+}
+.connect-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.check-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.field input[type='password'] {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  width: 100%;
+}
+.field input[type='password']:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 .seg {
   display: grid;

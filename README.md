@@ -28,6 +28,12 @@ OptPoP shows you what the strategy really looks like:
   condor, calendar, …) and flags naked shorts, thin credit-to-width, short strikes
   inside the expected move, gamma-heavy DTE, rich/thin IV regimes, and poor
   reward-for-risk, with concrete improvements.
+- **Live market data (bring your own key)** — connect a free
+  [Tradier](https://developer.tradier.com) token, type a symbol, and build legs
+  straight from the real option chain: expiration and strike pickers auto-fill
+  spot, DTE, IV, and the bid/ask-mid premium, with one-tap refresh. The token is
+  stored only on the user's device and every request goes directly from their
+  device to Tradier — OptPoP never proxies, stores, or redistributes market data.
 
 Every chart has a hover/keyboard crosshair with tooltips, a table view, and full
 light/dark theming. All math is dependency-free TypeScript with a Vitest suite that
@@ -35,6 +41,18 @@ cross-checks the closed forms against Monte Carlo.
 
 > ⚠️ Educational tool. Probabilities assume Black–Scholes (lognormal) dynamics at
 > the IV you enter — real markets have skew, jumps, and events. Not financial advice.
+
+## Live data setup (optional)
+
+1. Create a free account at [developer.tradier.com](https://developer.tradier.com)
+   and copy the **sandbox access token** (15-minute-delayed data, no brokerage
+   account needed). A Tradier brokerage account's production token gets real-time
+   data instead.
+2. In OptPoP, open **Live data (Tradier) → API key**, paste the token, and
+   connect a symbol. Each leg then offers expiration and chain-strike pickers.
+
+Without a key the app works fully in manual mode — you supply price, IV, and
+premiums yourself.
 
 ## Run it
 

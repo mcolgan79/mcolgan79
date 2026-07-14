@@ -61,9 +61,15 @@ export function PayoffChart({ st, a }: Props) {
   const xTicks = ticks(data.lo, data.hi, Math.max(Math.floor(plotW / 90), 3))
   const yTicks = ticks(y.domain[0], y.domain[1], 6)
 
-  const strikes = [...new Set(st.legs.map((l) => l.K))].filter(
-    (k) => k > data.lo && k < data.hi,
-  )
+  const strikes = [...new Set(st.legs.map((l) => l.K))]
+    .filter((k) => k > data.lo && k < data.hi)
+    .sort((a, b) => a - b)
+  // ticks for every strike, labels only where they don't collide
+  const labeledStrikes = strikes.filter((k, i) => {
+    if (i === 0) return true
+    const prev = strikes[i - 1]
+    return x(k) - x(prev) >= 34
+  })
   const breakevens = a.breakevens.filter((b) => b > data.lo && b < data.hi)
 
   const gbm = { S: st.S, T: a.T, sigma: a.sigma, r: st.r, q: st.q }
@@ -240,9 +246,11 @@ export function PayoffChart({ st, a }: Props) {
             {strikes.map((k) => (
               <g key={k}>
                 <line x1={x(k)} x2={x(k)} y1={M.top + PLOT_H} y2={M.top + PLOT_H + 6} stroke="var(--text-muted)" strokeWidth={1.5} />
-                <text x={x(k)} y={M.top + PLOT_H + 17} textAnchor="middle" className="axis-text">
-                  K {fmtNum(k, k % 1 === 0 ? 0 : 2)}
-                </text>
+                {labeledStrikes.includes(k) ? (
+                  <text x={x(k)} y={M.top + PLOT_H + 17} textAnchor="middle" className="axis-text">
+                    K {fmtNum(k, k % 1 === 0 ? 0 : 2)}
+                  </text>
+                ) : null}
               </g>
             ))}
 

@@ -1,10 +1,12 @@
-/* OptPoP service worker — cache-first for the app shell so the PWA works offline. */
-const CACHE = 'optpop-v1'
+/* OptPoP service worker.
+   - Navigations: network-first so a new deploy is picked up immediately,
+     falling back to cache offline.
+   - Same-origin assets (hashed filenames): cache-first.
+   - Cross-origin requests (Tradier API): never intercepted. */
+const CACHE = 'optpop-v2'
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(['./', './index.html'])),
-  )
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(['./', './index.html'])))
   self.skipWaiting()
 })
 
@@ -18,16 +20,30 @@ self.addEventListener('activate', (event) => {
 })
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return
+  const req = event.request
+  if (req.method !== 'GET') return
+  if (new URL(req.url).origin !== location.origin) return
+
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone()
+          if (res.ok) caches.open(CACHE).then((cache) => cache.put(req, copy))
+          return res
+        })
+        .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html'))),
+    )
+    return
+  }
+
   event.respondWith(
-    caches.match(event.request).then(
+    caches.match(req).then(
       (hit) =>
         hit ||
-        fetch(event.request).then((res) => {
+        fetch(req).then((res) => {
           const copy = res.clone()
-          if (res.ok && new URL(event.request.url).origin === location.origin) {
-            caches.open(CACHE).then((cache) => cache.put(event.request, copy))
-          }
+          if (res.ok) caches.open(CACHE).then((cache) => cache.put(req, copy))
           return res
         }),
     ),
