@@ -1,6 +1,6 @@
-import { bsPrice } from './black-scholes'
-import { yearsToExpiry } from './probability'
-import type { TradeInputs } from './types'
+import type { GbmParams } from './probability'
+import { frontDte, pnl } from './strategy'
+import type { Strategy } from './types'
 
 /** Deterministic RNG (mulberry32) so results are stable for a given input. */
 export function mulberry32(seed: number): () => number {
@@ -24,101 +24,88 @@ function gaussianPair(rng: () => number): [number, number] {
 }
 
 export interface P50Result {
-  /** Probability of hitting the profit target before expiration */
+  /** Probability of hitting the profit target before the horizon */
   p50: number
-  /** The P&L target used, in per-share terms */
-  targetPerShare: number
-  /** Human description of the target */
-  targetLabel: string
+  /** The total-dollar P&L target used */
+  targetDollars: number
   paths: number
 }
 
 /**
- * P50 via Monte Carlo: simulate daily GBM steps, mark the option to model
- * (Black–Scholes at each day's remaining tenor), and count the paths whose
- * open P&L reaches the target at any close before expiration.
- *
- * Target convention:
- *  - short: 50% of max profit (half the credit) — the classic tastytrade P50
- *  - long:  a 50% return on the debit paid
+ * P50 via Monte Carlo: simulate daily GBM steps to the front expiration,
+ * mark every leg to model each day, and count the paths whose open P&L
+ * reaches `targetDollars` at any close.
  */
-export function p50MonteCarlo(t: TradeInputs, paths = 4000, seed = 42): P50Result {
-  const T = yearsToExpiry(t.dte)
-  const steps = Math.max(Math.round(t.dte), 1)
-  const dt = T / steps
-  const drift = (t.r - t.q - 0.5 * t.iv * t.iv) * dt
-  const volStep = t.iv * Math.sqrt(dt)
+export function p50MonteCarlo(
+  st: Strategy,
+  sigma: number,
+  targetDollars: number,
+  paths = 3000,
+  seed = 42,
+): P50Result {
+  const days = Math.max(Math.round(frontDte(st)), 1)
+  const T = days / 365
+  const dt = T / days
+  const drift = (st.r - st.q - 0.5 * sigma * sigma) * dt
+  const volStep = sigma * Math.sqrt(dt)
   const rng = mulberry32(seed)
-
-  const isShort = t.side === 'short'
-  const targetPerShare = 0.5 * t.premium
-  const targetLabel = isShort ? '50% of max profit' : '50% return on debit'
-
-  // Open P&L per share: short → premium − price; long → price − premium.
-  // Hitting the target means price ≤ premium/2 (short) or ≥ 1.5×premium (long).
-  const priceThreshold = isShort ? t.premium - targetPerShare : t.premium + targetPerShare
 
   let hits = 0
   const zs: [number, number] = [0, 0]
   for (let i = 0; i < paths; i++) {
-    let s = t.S
-    let hit = false
-    for (let step = 1; step <= steps; step++) {
+    let s = st.S
+    for (let step = 1; step <= days; step++) {
       if (step % 2 === 1) {
         const pair = gaussianPair(rng)
         zs[0] = pair[0]
         zs[1] = pair[1]
       }
       s *= Math.exp(drift + volStep * zs[(step - 1) % 2])
-      const remaining = T - step * dt
-      const value =
-        remaining <= 0
-          ? t.type === 'call'
-            ? Math.max(s - t.K, 0)
-            : Math.max(t.K - s, 0)
-          : bsPrice(t.type, { S: s, K: t.K, T: remaining, sigma: t.iv, r: t.r, q: t.q })
-      if (isShort ? value <= priceThreshold : value >= priceThreshold) {
-        hit = true
+      if (pnl(st, s, step * dt) >= targetDollars) {
+        hits++
         break
       }
     }
-    if (hit) hits++
   }
-  return { p50: hits / paths, targetPerShare, targetLabel, paths }
+  return { p50: hits / paths, targetDollars, paths }
 }
 
-/** MC estimate of P(S_T beyond level) — used to cross-check closed forms in tests. */
+/** MC estimate of P(S_T > level) — used to cross-check closed forms in tests. */
 export function mcProbAboveAtExpiry(
-  t: TradeInputs,
+  { S, T, sigma, r, q }: GbmParams,
   level: number,
   paths = 20000,
   seed = 7,
 ): number {
-  const T = yearsToExpiry(t.dte)
   const rng = mulberry32(seed)
   let above = 0
-  for (let i = 0; i < paths; i += 2) {
+  const total = paths % 2 === 0 ? paths : paths + 1
+  for (let i = 0; i < total; i += 2) {
     const [z1, z2] = gaussianPair(rng)
     for (const z of [z1, z2]) {
-      const sT = t.S * Math.exp((t.r - t.q - 0.5 * t.iv * t.iv) * T + t.iv * Math.sqrt(T) * z)
+      const sT = S * Math.exp((r - q - 0.5 * sigma * sigma) * T + sigma * Math.sqrt(T) * z)
       if (sT > level) above++
     }
   }
-  return above / (paths % 2 === 0 ? paths : paths + 1)
+  return above / total
 }
 
-/** MC estimate of touch probability with daily monitoring — for tests. */
-export function mcProbTouch(t: TradeInputs, level: number, paths = 8000, seed = 11): number {
-  const T = yearsToExpiry(t.dte)
-  const steps = Math.max(Math.round(t.dte) * 8, 8) // intraday steps to approximate continuity
+/** MC estimate of touch probability with intraday monitoring — for tests. */
+export function mcProbTouch(
+  { S, T, sigma, r, q }: GbmParams,
+  level: number,
+  paths = 8000,
+  seed = 11,
+): number {
+  const steps = Math.max(Math.round(T * 365) * 8, 8)
   const dt = T / steps
-  const drift = (t.r - t.q - 0.5 * t.iv * t.iv) * dt
-  const volStep = t.iv * Math.sqrt(dt)
+  const drift = (r - q - 0.5 * sigma * sigma) * dt
+  const volStep = sigma * Math.sqrt(dt)
   const rng = mulberry32(seed)
-  const up = level > t.S
+  const up = level > S
   let hits = 0
   for (let i = 0; i < paths; i++) {
-    let s = t.S
+    let s = S
     for (let step = 0; step < steps; step++) {
       const [z] = gaussianPair(rng)
       s *= Math.exp(drift + volStep * z)

@@ -1,12 +1,8 @@
 import { useMemo, useState } from 'react'
 import { fmtNum, fmtPct, ticks } from '../lib/format'
-import {
-  gbmFromInputs,
-  payoffAtExpiry,
-  probAbove,
-  terminalPdf,
-} from '../lib/probability'
-import type { Analysis, TradeInputs } from '../lib/types'
+import { probAbove, terminalPdf } from '../lib/probability'
+import { pnlAtHorizon, singleExpiry } from '../lib/strategy'
+import type { Strategy, StrategyAnalysis } from '../lib/types'
 import {
   ChartTooltip,
   linearScale,
@@ -19,21 +15,21 @@ const M = { top: 22, right: 24, bottom: 34, left: 24 }
 const PLOT_H = 190
 
 interface Props {
-  t: TradeInputs
-  a: Analysis
+  st: Strategy
+  a: StrategyAnalysis
 }
 
-/** Model distribution of the underlying at expiration, profit region shaded. */
-export function DistributionChart({ t, a }: Props) {
+/** Model distribution of the underlying at the front expiration, profit region shaded. */
+export function DistributionChart({ st, a }: Props) {
   const [wrapRef, width] = useMeasuredWidth<HTMLDivElement>()
   const [tableView, setTableView] = useState(false)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
 
-  const gbm = gbmFromInputs(t)
+  const gbm = { S: st.S, T: a.T, sigma: a.sigma, r: st.r, q: st.q }
+  const horizonWord = singleExpiry(st) ? 'expiration' : 'the front expiration'
+
   const data = useMemo(() => {
-    const em = Math.max(a.expectedMove, t.S * 0.02)
-    const lo = Math.max(Math.min(t.S - 3.2 * em, a.breakeven * 0.97), 0.01)
-    const hi = Math.max(t.S + 3.2 * em, a.breakeven * 1.03)
+    const [lo, hi] = a.domain
     const n = 161
     const prices: number[] = []
     const dens: number[] = []
@@ -42,10 +38,10 @@ export function DistributionChart({ t, a }: Props) {
       const s = lo + ((hi - lo) * i) / (n - 1)
       prices.push(s)
       dens.push(terminalPdf(s, gbm))
-      profit.push(payoffAtExpiry(s, t) > 0)
+      profit.push(pnlAtHorizon(st, s) > 0)
     }
-    return { prices, dens, profit, lo, hi, em }
-  }, [t, a, gbm])
+    return { prices, dens, profit, lo, hi }
+  }, [st, a, gbm])
 
   const height = M.top + PLOT_H + M.bottom
   const plotW = Math.max(width - M.left - M.right, 80)
@@ -58,7 +54,7 @@ export function DistributionChart({ t, a }: Props) {
   const linePath = polylinePath(xs, data.dens.map((d) => y(d)))
   const areaPath = `${linePath}L${x(data.hi).toFixed(2)},${y0}L${x(data.lo).toFixed(2)},${y0}Z`
 
-  // Contiguous profit intervals along the price axis (one for a single leg)
+  // Contiguous profit intervals along the price axis (condors/calendars have a middle one)
   const profitRects: Array<[number, number]> = []
   let start: number | null = null
   for (let i = 0; i < data.prices.length; i++) {
@@ -68,8 +64,13 @@ export function DistributionChart({ t, a }: Props) {
       start = null
     }
   }
+  const widest = profitRects.reduce<[number, number] | null>(
+    (best, r) => (best === null || r[1] - r[0] > best[1] - best[0] ? r : best),
+    null,
+  )
 
   const xTicks = ticks(data.lo, data.hi, Math.max(Math.floor(plotW / 90), 3))
+  const breakevens = a.breakevens.filter((b) => b > data.lo && b < data.hi).slice(0, 3)
 
   const idx = hoverIdx
   const tip: TooltipState | null =
@@ -82,11 +83,11 @@ export function DistributionChart({ t, a }: Props) {
           rows: [
             {
               value: fmtPct(probAbove(data.prices[idx], gbm)),
-              label: 'chance of expiring above',
+              label: 'chance of finishing above',
             },
             {
               value: data.profit[idx] ? 'profit' : 'loss',
-              label: 'expiration outcome here',
+              label: `outcome at ${horizonWord}`,
             },
           ],
         }
@@ -105,17 +106,17 @@ export function DistributionChart({ t, a }: Props) {
   }
 
   const quantiles = [
-    { q: '−2σ', s: t.S - 2 * data.em },
-    { q: '−1σ', s: t.S - data.em },
-    { q: 'Spot', s: t.S },
-    { q: '+1σ', s: t.S + data.em },
-    { q: '+2σ', s: t.S + 2 * data.em },
+    { q: '−2σ', s: st.S - 2 * a.expectedMove },
+    { q: '−1σ', s: st.S - a.expectedMove },
+    { q: 'Spot', s: st.S },
+    { q: '+1σ', s: st.S + a.expectedMove },
+    { q: '+2σ', s: st.S + 2 * a.expectedMove },
   ]
 
   return (
     <div className="card chart-card">
       <div className="chart-head">
-        <h2>Where the model expects the underlying at expiration</h2>
+        <h2>Where the model expects the underlying at {horizonWord}</h2>
         <button className="view-toggle" onClick={() => setTableView((v) => !v)}>
           {tableView ? 'Chart' : 'Data'}
         </button>
@@ -128,7 +129,7 @@ export function DistributionChart({ t, a }: Props) {
               <tr>
                 <th scope="col">Level</th>
                 <th scope="col">Underlying</th>
-                <th scope="col">Chance of expiring above</th>
+                <th scope="col">Chance of finishing above</th>
               </tr>
             </thead>
             <tbody>
@@ -147,7 +148,7 @@ export function DistributionChart({ t, a }: Props) {
           <svg
             viewBox={`0 0 ${width} ${height}`}
             role="img"
-            aria-label="Probability distribution of the underlying price at expiration with the profit region shaded"
+            aria-label="Probability distribution of the underlying price with the profit region shaded"
           >
             <defs>
               <clipPath id="clip-dist-profit">
@@ -166,31 +167,31 @@ export function DistributionChart({ t, a }: Props) {
             <line x1={M.left} x2={M.left + plotW} y1={y0} y2={y0} stroke="var(--baseline)" strokeWidth={1} />
 
             {/* spot & breakeven hairlines */}
-            <line x1={x(t.S)} x2={x(t.S)} y1={M.top} y2={y0} stroke="var(--baseline)" strokeWidth={1} />
-            <text x={x(t.S)} y={M.top - 8} textAnchor="middle" className="marker-text">
+            <line x1={x(st.S)} x2={x(st.S)} y1={M.top} y2={y0} stroke="var(--baseline)" strokeWidth={1} />
+            <text x={x(st.S)} y={M.top - 8} textAnchor="middle" className="marker-text">
               Spot
             </text>
-            {a.breakeven > data.lo && a.breakeven < data.hi ? (
-              <g>
-                <line x1={x(a.breakeven)} x2={x(a.breakeven)} y1={M.top} y2={y0} stroke="var(--text-muted)" strokeWidth={1} />
+            {breakevens.map((be) => (
+              <g key={be}>
+                <line x1={x(be)} x2={x(be)} y1={M.top} y2={y0} stroke="var(--text-muted)" strokeWidth={1} />
                 <text
-                  x={x(a.breakeven)}
+                  x={x(be)}
                   y={M.top - 8}
                   textAnchor="middle"
                   className="marker-text"
                   style={{
-                    display: Math.abs(x(a.breakeven) - x(t.S)) < 44 ? 'none' : undefined,
+                    display: Math.abs(x(be) - x(st.S)) < 44 ? 'none' : undefined,
                   }}
                 >
-                  BE {fmtNum(a.breakeven)}
+                  BE {fmtNum(be)}
                 </text>
               </g>
-            ) : null}
+            ))}
 
-            {/* profit-region label */}
-            {profitRects.length > 0 ? (
+            {/* profit-region label on the widest region */}
+            {widest ? (
               <text
-                x={(profitRects[0][0] + profitRects[0][1]) / 2}
+                x={(widest[0] + widest[1]) / 2}
                 y={y0 - 8}
                 textAnchor="middle"
                 className="series-label"
@@ -234,8 +235,9 @@ export function DistributionChart({ t, a }: Props) {
         </div>
       )}
       <p className="chart-note">
-        Lognormal distribution implied by the entered IV. The shaded slice is where the
-        trade is profitable at expiration — its area is the POP.
+        Lognormal distribution implied by the position's vega-weighted IV (
+        {fmtPct(a.sigma, 0)}). The shaded slices are where the trade profits at{' '}
+        {horizonWord} — their combined area is the POP.
       </p>
     </div>
   )

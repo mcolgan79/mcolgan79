@@ -1,25 +1,33 @@
 # OptPoP
 
-**Options probability & risk analyzer** — enter an underlying price, strike, days to
-expiration, and either an implied volatility or a market premium, and OptPoP shows
-you what a long or short call/put position really looks like:
+**Options probability & risk analyzer** — build a position from one to six legs
+(templates for verticals, iron condors, calendars, and diagonals included), give
+each leg a strike, DTE, and either an implied volatility or a market premium, and
+OptPoP shows you what the strategy really looks like:
 
-- **Risk & reward** — interactive payoff diagram with the at-expiration curve, the
-  T+0 (today) mark-to-model curve, profit/loss shading, breakeven, strike, spot, and
-  the ±1σ expected-move band.
-- **POP** — probability the position is profitable at expiration.
-- **P50** — probability of reaching 50% of max profit (short) or a 50% return on the
-  debit (long) *at any point before expiration*, estimated with a seeded 4,000-path
-  Monte Carlo that marks the option to model daily.
-- **Probability of touch** — chance the underlying trades through the strike or the
-  breakeven before expiration (closed-form first-passage under GBM).
-- **Probability distribution** — the lognormal terminal distribution implied by your
-  IV, with the profitable slice shaded (its area *is* the POP).
-- **Greeks** — position delta, gamma, theta, vega, rho, per share and in dollars.
-- **Trade check** — a heuristics engine that flags undefined risk, gamma-heavy DTE,
-  aggressive deltas, thin reward-for-risk, rich/thin IV regimes, and suggests
-  concrete improvements (defined-risk spreads, strike/DTE adjustments, profit
-  targets).
+- **Multi-leg strategies** — single options, credit/debit verticals, iron condors,
+  straddles/strangles, calendars, diagonals, or any custom combination. Positions
+  with mixed expirations are evaluated at the *front* expiration, with longer-dated
+  legs marked to model — so calendar/diagonal tents render properly.
+- **Risk & reward** — interactive payoff diagram with the at-horizon curve, the
+  T+0 (today) mark-to-model curve, profit/loss shading, every breakeven and strike,
+  spot, and the ±1σ expected-move band.
+- **POP** — probability the position is profitable at the horizon, integrated
+  exactly over the (possibly multiple) profit intervals.
+- **P50** — probability of reaching 50% of max profit (or a 50% return on the debit
+  when profit is unbounded) *at any point before the front expiration*, estimated
+  with a seeded Monte Carlo that marks every leg to model daily.
+- **Probability of touch** — chance the underlying trades through each breakeven
+  before the horizon (closed-form first-passage under GBM).
+- **Probability distribution** — the lognormal terminal distribution implied by the
+  position's vega-weighted IV, with the profitable slices shaded (their combined
+  area *is* the POP).
+- **Greeks** — net position delta, gamma, theta, vega, rho, per share and in
+  dollars, each leg at its own tenor and IV.
+- **Trade check** — a heuristics engine that recognizes the structure (vertical,
+  condor, calendar, …) and flags naked shorts, thin credit-to-width, short strikes
+  inside the expected move, gamma-heavy DTE, rich/thin IV regimes, and poor
+  reward-for-risk, with concrete improvements.
 
 Every chart has a hover/keyboard crosshair with tooltips, a table view, and full
 light/dark theming. All math is dependency-free TypeScript with a Vitest suite that
@@ -72,12 +80,15 @@ Linux installers via `tauri-action` and attaches them to a draft release.
 
 | Quantity | Method |
 |---|---|
-| Fair value / Greeks | Black–Scholes–Merton with continuous rate `r` and dividend yield `q` |
+| Fair value / Greeks | Black–Scholes–Merton per leg (own tenor & IV), continuous rate `r` and dividend yield `q` |
+| Horizon payoff | Evaluated at the front expiration; longer-dated legs marked to model with their remaining tenor |
+| Breakevens / max P&L | Log-spaced grid + bisection-refined zero crossings, with analytic tail handling (net call exposure ⇒ unbounded sides) |
+| Underlying vol | Vega-weighted average of the legs' IVs |
 | Implied vol | Newton–Raphson on vega with bisection fallback, no-arbitrage bounds checked |
-| POP | `P(S_T beyond breakeven)` under GBM with risk-neutral drift |
+| POP | Lognormal probability mass of the profit intervals under GBM with risk-neutral drift |
 | Probability of touch | Closed-form first-passage (reflection principle with drift) |
-| P50 | Monte Carlo: daily GBM steps, option repriced with BS at each day's remaining tenor, path counts a hit when open P&L reaches the target |
-| Expected move | `S · σ · √T` |
+| P50 | Monte Carlo: daily GBM steps, every leg repriced with BS each day, path counts a hit when open P&L reaches the target |
+| Expected move | `S · σ · √T` to the front expiration |
 
 The test suite (`src/lib/math.test.ts`) pins the textbook BS values, put–call
 parity, finite-difference Greeks, and agreement between the closed-form

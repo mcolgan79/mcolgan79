@@ -1,49 +1,71 @@
-import { bsGreeks, bsPrice } from './black-scholes'
 import { p50MonteCarlo } from './monte-carlo'
+import { expectedMove, probTouch } from './probability'
 import {
-  breakeven,
-  expectedMove,
-  gbmFromInputs,
-  maxLoss,
-  maxProfit,
-  pop,
-  probItm,
-  probTouch,
-  yearsToExpiry,
-} from './probability'
-import type { Analysis, TradeInputs } from './types'
+  chartDomain,
+  classify,
+  extremes,
+  frontDte,
+  netCost,
+  netGreeks,
+  popStrategy,
+  profitRegions,
+  strategyValue,
+  underlyingVol,
+} from './strategy'
+import type { Strategy, StrategyAnalysis } from './types'
 
-export function analyze(t: TradeInputs): Analysis {
-  const T = yearsToExpiry(t.dte)
-  const gbm = gbmFromInputs(t)
-  const bs = { S: t.S, K: t.K, T, sigma: t.iv, r: t.r, q: t.q }
-  const rawGreeks = bsGreeks(t.type, bs)
-  const sign = t.side === 'long' ? 1 : -1
-  const greeks = {
-    delta: sign * rawGreeks.delta,
-    gamma: sign * rawGreeks.gamma,
-    theta: sign * rawGreeks.theta,
-    vega: sign * rawGreeks.vega,
-    rho: sign * rawGreeks.rho,
+export function analyze(st: Strategy): StrategyAnalysis {
+  const horizonDte = frontDte(st)
+  const T = horizonDte / 365
+  const sigma = underlyingVol(st)
+  const scale = st.multiplier * st.contracts
+  const cost = netCost(st)
+
+  const regions = profitRegions(st, sigma)
+  const { maxProfit, maxLoss } = extremes(st, sigma)
+  const pop = popStrategy(st, sigma, regions)
+
+  // P50 target: half of max profit when it's defined; otherwise (unbounded
+  // upside) a 50% return on the net debit.
+  let targetDollars: number
+  let p50TargetLabel: string
+  if (Number.isFinite(maxProfit) && maxProfit > 0) {
+    targetDollars = 0.5 * maxProfit
+    p50TargetLabel = '50% of max profit'
+  } else {
+    targetDollars = 0.5 * Math.max(Math.abs(cost), 0.01) * scale
+    p50TargetLabel = '50% return on the debit'
   }
-  const mp = maxProfit(t)
-  const ml = maxLoss(t)
+  const paths = st.legs.length > 2 ? 2500 : 4000
+  const { p50 } = p50MonteCarlo(st, sigma, targetDollars, paths)
+
+  const gbm = { S: st.S, T, sigma, r: st.r, q: st.q }
+  const touch = regions.breakevens
+    .filter((b) => b > 0 && Number.isFinite(b))
+    .slice(0, 3)
+    .map((level) => ({ level, prob: probTouch(level, gbm) }))
+
   const riskReward =
-    ml === 0 ? Infinity : mp === 0 ? 0 : mp / Math.abs(ml) // Infinity/-Infinity handled by callers
+    maxLoss === 0 ? Infinity : maxProfit === 0 ? 0 : maxProfit / Math.abs(maxLoss)
 
   return {
-    fairValue: bsPrice(t.type, bs),
-    greeks,
-    breakeven: breakeven(t),
-    maxProfit: mp,
-    maxLoss: ml,
-    pop: pop(t),
-    p50: p50MonteCarlo(t).p50,
-    probItm: probItm(t),
-    probTouchStrike: probTouch(t.K, gbm),
-    probTouchBreakeven: probTouch(breakeven(t), gbm),
-    expectedMove: expectedMove(t.S, t.iv, T),
+    kind: classify(st),
+    horizonDte,
+    T,
+    sigma,
+    netCost: cost,
+    fairValue: strategyValue(st, st.S, 0),
+    breakevens: regions.breakevens,
+    profitIntervals: regions.intervals,
+    maxProfit,
+    maxLoss,
+    pop,
+    p50,
+    p50TargetLabel,
+    probTouch: touch,
+    expectedMove: expectedMove(st.S, sigma, T),
     riskReward,
-    yearsToExpiry: T,
+    greeks: netGreeks(st),
+    domain: chartDomain(st, sigma, regions.breakevens),
   }
 }

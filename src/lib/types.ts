@@ -1,28 +1,6 @@
 export type OptionType = 'call' | 'put'
 export type Side = 'long' | 'short'
 
-/** All prices are per share; `multiplier` scales to contract dollars. */
-export interface TradeInputs {
-  /** Underlying price */
-  S: number
-  /** Strike */
-  K: number
-  /** Calendar days to expiration */
-  dte: number
-  /** Implied volatility as a decimal (0.30 = 30%) */
-  iv: number
-  /** Option premium per share (mid price) */
-  premium: number
-  type: OptionType
-  side: Side
-  /** Risk-free rate as a decimal */
-  r: number
-  /** Continuous dividend yield as a decimal */
-  q: number
-  contracts: number
-  multiplier: number
-}
-
 export interface Greeks {
   delta: number
   gamma: number
@@ -34,22 +12,78 @@ export interface Greeks {
   rho: number
 }
 
-export interface Analysis {
+/** One option leg. Prices are per share; `qty` is the leg ratio (usually 1). */
+export interface Leg {
+  type: OptionType
+  side: Side
+  K: number
+  /** Calendar days to this leg's expiration */
+  dte: number
+  /** This leg's implied volatility, decimal */
+  iv: number
+  /** Premium per share */
+  premium: number
+  qty: number
+}
+
+export interface Strategy {
+  /** Underlying price */
+  S: number
+  /** Risk-free rate, decimal */
+  r: number
+  /** Continuous dividend yield, decimal */
+  q: number
+  /** Number of spreads (multiplies every leg) */
+  contracts: number
+  multiplier: number
+  legs: Leg[]
+}
+
+export type StrategyKind =
+  | 'single'
+  | 'vertical-credit'
+  | 'vertical-debit'
+  | 'iron-condor'
+  | 'calendar'
+  | 'diagonal'
+  | 'straddle'
+  | 'strangle'
+  | 'custom'
+
+export interface TouchProb {
+  level: number
+  prob: number
+}
+
+export interface StrategyAnalysis {
+  kind: StrategyKind
+  /** Days to the nearest expiration — the evaluation horizon */
+  horizonDte: number
+  /** Years to the horizon */
+  T: number
+  /** Single vol used for underlying dynamics (vega-weighted across legs) */
+  sigma: number
+  /** Net cost per share: positive = debit paid, negative = credit received */
+  netCost: number
+  /** Model net value per share, same sign convention as netCost */
   fairValue: number
-  greeks: Greeks
-  breakeven: number
-  /** Total dollars for the whole position (contracts × multiplier) */
+  breakevens: number[]
+  /** Price intervals profitable at the horizon; 0 / Infinity mark open ends */
+  profitIntervals: Array<[number, number]>
+  /** Total dollars; Infinity when unbounded */
   maxProfit: number
-  /** Total dollars, negative. -Infinity when unbounded (naked short call). */
+  /** Total dollars, ≤ 0; -Infinity when unbounded */
   maxLoss: number
   pop: number
   p50: number
-  probItm: number
-  probTouchStrike: number
-  probTouchBreakeven: number
-  /** 1σ expected move in underlying points */
+  p50TargetLabel: string
+  /** Touch probabilities for each breakeven before the horizon */
+  probTouch: TouchProb[]
+  /** 1σ expected move in underlying points, to the horizon */
   expectedMove: number
-  /** Reward per $1 risked; Infinity if risk-free, 0 if profit-free */
   riskReward: number
-  yearsToExpiry: number
+  /** Net position Greeks per share (per single spread) */
+  greeks: Greeks
+  /** Suggested price domain for charts */
+  domain: [number, number]
 }
