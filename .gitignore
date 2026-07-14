@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+
+# Tauri build output & generated files
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/
+src-tauri/Cargo.lock
+
+.DS_Store
+*.local
+*.tsbuildinfo

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#2a78d6"/>
+  <!-- zero line -->
+  <line x1="72" y1="296" x2="440" y2="296" stroke="#ffffff" stroke-opacity="0.45" stroke-width="10" stroke-linecap="round"/>
+  <!-- payoff hockey-stick -->
+  <path d="M84 360 L248 360 L420 172" fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- breakeven dot -->
+  <circle cx="306" cy="296" r="26" fill="#fcfcfb"/>
+  <circle cx="306" cy="296" r="14" fill="#eda100"/>
+</svg>
