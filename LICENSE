@@ -1,0 +1,49 @@
+OptPoP — Proprietary Software License
+Copyright (c) 2026 Michael Colgan. All rights reserved.
+
+This software and its source code (the "Software") are the proprietary and
+confidential property of Michael Colgan (the "Owner"). The Software is
+licensed, not sold.
+
+1. Ownership. All right, title, and interest in and to the Software,
+   including all intellectual property rights, are and remain the exclusive
+   property of the Owner.
+
+2. No license granted. No license or right to use, copy, modify, merge,
+   publish, distribute, sublicense, sell, or create derivative works of the
+   Software is granted to any party except under a separate written agreement
+   signed by the Owner. Viewing this repository does not grant any such
+   rights.
+
+3. Restrictions. Without the Owner's prior written permission, you may not:
+   (a) reproduce, distribute, or publicly display the Software;
+   (b) modify, adapt, translate, reverse engineer, decompile, or disassemble
+       the Software, or create derivative works from it;
+   (c) remove or alter any proprietary notices; or
+   (d) use the Software for any commercial or production purpose.
+
+4. Third-party components. The Software depends on third-party open-source
+   packages that are licensed separately under their own terms; those terms
+   govern only their respective components, not the Software as a whole.
+
+5. Market data. The Software can retrieve market data from third-party
+   providers using credentials supplied by the end user. Such data is subject
+   to the provider's own terms and is not owned or redistributed by the Owner.
+
+6. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+7. No financial advice. The Software is provided for educational and
+   analytical purposes only. It does not constitute financial, investment,
+   trading, tax, or legal advice, a recommendation, or an offer or
+   solicitation to buy or sell any security. Options trading involves
+   substantial risk of loss. The Owner is not liable for any decisions made
+   or losses incurred in reliance on the Software.
+
+8. Limitation of liability. IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY
+   CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+   TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For licensing inquiries, contact the Owner at michael.colgan@gmail.com.

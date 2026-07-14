@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.2.0",
   "description": "OptPoP — options risk/reward analyzer with POP, P50, and probability-of-touch analytics",
+  "author": "Michael Colgan",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",

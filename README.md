@@ -116,3 +116,11 @@ probabilities and Monte Carlo simulation.
 
 React 18 + TypeScript + Vite. Charts are hand-rolled responsive SVG (no chart
 library). PWA via a small service worker; desktop/mobile shells via Tauri 2.
+
+## License
+
+**Proprietary — © 2026 Michael Colgan. All rights reserved.** This is not
+open-source software. No permission is granted to use, copy, modify, or
+distribute the Software except under a separate written agreement. See
+[`LICENSE`](./LICENSE) for the full terms. Third-party dependencies remain under
+their own licenses. For licensing inquiries, contact michael.colgan@gmail.com.
