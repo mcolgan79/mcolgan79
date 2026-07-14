@@ -119,7 +119,7 @@ library). PWA via a small service worker; desktop/mobile shells via Tauri 2.
 
 ## License
 
-**Proprietary — © 2026 Michael Colgan. All rights reserved.** This is not
+**Proprietary — © 2026 Pera Pera, Inc. All rights reserved.** This is not
 open-source software. No permission is granted to use, copy, modify, or
 distribute the Software except under a separate written agreement. See
 [`LICENSE`](./LICENSE) for the full terms. Third-party dependencies remain under
