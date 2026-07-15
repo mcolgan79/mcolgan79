@@ -1,0 +1,68 @@
+name: Build iOS
+
+# Builds the native iOS app with Tauri 2 on a macOS runner.
+#
+# Two modes (choose when you run it from the Actions tab):
+#   - simulator (default): builds an unsigned app for the iOS Simulator. Needs
+#     NO Apple Developer account — use it to confirm the iOS app compiles.
+#   - device: builds a signed .ipa for real iPhones / TestFlight. Requires an
+#     Apple Developer Program membership and these repo secrets:
+#       APPLE_DEVELOPMENT_TEAM        your 10-char Team ID
+#       APPLE_CERTIFICATE             base64 of your .p12 signing cert
+#       APPLE_CERTIFICATE_PASSWORD    password for that .p12
+#       APPLE_API_KEY / _ISSUER / _KEY   App Store Connect API key (for upload)
+#     Building a real device app on your own Mac is simpler: `npx tauri ios init`
+#     then open src-tauri/gen/apple in Xcode, pick your team, and Run/Archive.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Build target
+        type: choice
+        default: simulator
+        options: [simulator, device]
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - run: npm ci
+
+      - name: Generate bundle icons
+        run: npx tauri icon public/icon-512.png
+
+      - name: Initialize iOS project
+        run: npx tauri ios init
+
+      - name: Build for the iOS Simulator (unsigned)
+        if: ${{ inputs.mode == 'simulator' }}
+        run: npx tauri ios build --target aarch64-sim
+
+      - name: Build signed .ipa for device
+        if: ${{ inputs.mode == 'device' }}
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: npx tauri ios build --export-method app-store-connect
+
+      - name: Upload iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: optpop-ios-${{ inputs.mode }}
+          if-no-files-found: warn
+          path: |
+            src-tauri/gen/apple/build/**/*.app
+            src-tauri/gen/apple/build/**/*.ipa

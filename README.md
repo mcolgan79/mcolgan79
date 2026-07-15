@@ -63,17 +63,39 @@ npm test           # math test suite
 npm run build      # production web build in dist/
 ```
 
-## On your phone
+## On your phone (iOS & Android)
 
-OptPoP is an installable PWA (works offline):
+### The easy way — install the PWA (no Mac, no App Store, no cost)
 
-1. Deploy `dist/` to any static host (GitHub Pages, Netlify, …) — or run
-   `npm run preview` on your LAN.
-2. Open it in Safari (iOS) or Chrome (Android) and choose **Add to Home Screen /
-   Install app**. It launches full-screen like a native app.
+OptPoP is an installable PWA that runs full-screen and works offline.
 
-For fully native mobile binaries, Tauri 2 can wrap the same code:
-`npx tauri android init && npx tauri android build` (or `ios` on a Mac with Xcode).
+1. Get it to an HTTPS URL: the **Deploy web (PWA)** workflow publishes it to
+   GitHub Pages, or deploy `dist/` to Netlify / Cloudflare Pages. (To just try it
+   on your own phone, run `npm run preview -- --host` and open the shown LAN
+   address in the phone's browser.)
+2. **iPhone:** open the URL in **Safari** → **Share** → **Add to Home Screen**.
+   **Android:** open in **Chrome** → menu → **Install app / Add to Home Screen**.
+
+It then launches from its own icon like a native app, including live Tradier
+data. This is the recommended path for a public launch — no review, no fees.
+
+### The native way — a real App Store app (Tauri, needs a Mac + Apple account)
+
+Tauri 2 wraps the same code into a native binary. Building and installing on iOS
+**requires a Mac with Xcode and an Apple Developer Program membership ($99/yr)**;
+there is no way around Apple's signing requirement.
+
+```bash
+npx tauri ios init     # generates the Xcode project under src-tauri/gen/apple
+npx tauri ios dev      # run in the iOS Simulator
+npx tauri ios build    # build a signed .ipa (select your Apple team first)
+```
+
+The **Build iOS** GitHub Actions workflow can do a *simulator* build with no
+Apple account (to confirm it compiles) and a *device* build once you add your
+Apple signing secrets — see the comments at the top of
+`.github/workflows/build-ios.yml`. Android is analogous:
+`npx tauri android init && npx tauri android build`.
 
 ## Windows .exe / macOS .app
 
