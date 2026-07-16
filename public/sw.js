@@ -22,7 +22,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
-  if (new URL(req.url).origin !== location.origin) return
+  const url = new URL(req.url)
+  if (url.origin !== location.origin) return
+  // Never cache API calls (Stripe subscription status must always be live).
+  if (url.pathname.startsWith('/api/')) return
 
   if (req.mode === 'navigate') {
     event.respondWith(

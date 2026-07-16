@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { adsVisible } from '../config/monetization'
-import { MockPurchaseProvider, type KeyValueStore } from './purchases'
+import { adSlotId, adsenseConfigured, adsVisible, stripeConfigured } from '../config/monetization'
+import { isTauri, isWebBrowser } from './platform'
+import { getPurchaseProvider, MockPurchaseProvider, type KeyValueStore } from './purchases'
 
 function memoryStore(): KeyValueStore {
   const map = new Map<string, string>()
@@ -51,5 +52,27 @@ describe('MockPurchaseProvider', () => {
     const b = new MockPurchaseProvider(store)
     await a.purchase()
     expect(await b.checkEntitlement()).toBe(true)
+  })
+})
+
+describe('config gating (unconfigured by default in tests)', () => {
+  it('adsense and stripe are off without env vars', () => {
+    expect(adsenseConfigured()).toBe(false)
+    expect(stripeConfigured()).toBe(false)
+    expect(adSlotId('content-top')).toBe('')
+    expect(adSlotId('nonexistent')).toBe('')
+  })
+})
+
+describe('platform detection (node/test env)', () => {
+  it('is neither web nor Tauri without a window', () => {
+    expect(isWebBrowser()).toBe(false)
+    expect(isTauri()).toBe(false)
+  })
+})
+
+describe('getPurchaseProvider', () => {
+  it('falls back to the mock provider when Stripe is unconfigured', () => {
+    expect(getPurchaseProvider().name).toBe('mock')
   })
 })

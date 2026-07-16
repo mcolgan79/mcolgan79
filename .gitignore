@@ -12,3 +12,7 @@ src-tauri/Cargo.lock
 .DS_Store
 *.local
 *.tsbuildinfo
+
+# local env
+.env
+.env.local

@@ -1,0 +1,4 @@
+# Google AdSense ads.txt — required for serving ads on your domain.
+# Replace the line below with the exact entry from your AdSense account
+# (AdSense → Sites → ads.txt), using YOUR publisher id:
+# google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0

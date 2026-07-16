@@ -154,20 +154,50 @@ services:
 | Paywall UI | `src/components/UpgradeDialog.tsx` | ✅ working (mock checkout) |
 | Prices / product IDs | `src/config/monetization.ts` | ⚙️ placeholders to fill |
 
-**To go live you supply the accounts and drop them in — no UI changes:**
+### Web (AdSense + Stripe) — wired, needs your keys
 
-- **Ads.** Web/PWA → Google AdSense (`<ins class="adsbygoogle">` inside `AdSlot`);
-  native iOS/Android → the AdMob SDK. Each is account-gated. The Tauri app's CSP
-  (`src-tauri/tauri.conf.json`) must be extended with the ad network's domains.
-- **Payments.** Web → Stripe Checkout + a small backend to verify the session.
-  **iOS must use Apple in-app purchase (StoreKit)** for digital subscriptions —
-  Apple requires it and takes 15–30%. Android uses Google Play Billing.
-  [RevenueCat](https://www.revenuecat.com) wraps StoreKit + Play behind one SDK
-  if you want a single mobile integration.
-- Implement `PurchaseProvider` for the platform and return it from
-  `getPurchaseProvider()`; the rest of the app already talks only to that
-  interface. **Never trust the local flag as the source of truth in
-  production** — verify the receipt/subscription in `checkEntitlement()`.
+The web/PWA path is implemented end to end and activates from build-time env
+vars (see [`.env.example`](./.env.example)). With none set, ads show
+placeholders and checkout uses the local mock, so the app always builds.
+
+**AdSense** — create a publisher account, add an ad unit per placement, then set
+at build time:
+
+```
+VITE_ADSENSE_CLIENT=ca-pub-…          # your publisher id
+VITE_ADSENSE_SLOT_TOP=…               # data-ad-slot for the top banner
+VITE_ADSENSE_SLOT_BOTTOM=…            # data-ad-slot for the bottom banner
+```
+
+Also put your real `ads.txt` line (from the AdSense console) into
+[`public/ads.txt`](./public/ads.txt), and approve your domain in AdSense. Ads
+render only on the web — never in the Tauri app (its CSP blocks them by design).
+
+**Stripe** — create a recurring Price for OptPoP Pro, then:
+
+1. Set the client flag at build time: `VITE_STRIPE_PUBLISHABLE_KEY=pk_…`
+2. Deploy the serverless backend in [`functions/api/`](./functions/api) (written
+   as **Cloudflare Pages Functions**, zero-dependency Stripe REST calls). Set
+   these **server-side secrets** (never `VITE_`): `STRIPE_SECRET_KEY`,
+   `STRIPE_PRICE_ID`, and optionally `PUBLIC_BASE_URL`.
+3. `StripePurchaseProvider` redirects to Stripe Checkout and verifies the
+   subscription against Stripe on return and on every load — the client flag is
+   never trusted. The functions port directly to Vercel/Netlify (same
+   `/api/*` routes).
+
+**Cross-device caveat:** entitlement is keyed to the Stripe customer id stored
+on the device, which is a solid MVP but doesn't sync across a user's devices.
+True multi-device requires user accounts (sign-in / magic link) so the customer
+id can bind to an identity; a Stripe webhook writing to a KV/store is the
+production hardening (a `functions/api/stripe-webhook` handler is the place).
+
+### Native iOS/Android (later)
+
+**iOS must use Apple in-app purchase (StoreKit)** for digital subscriptions —
+Apple requires it and takes 15–30%; Android uses Google Play Billing.
+[RevenueCat](https://www.revenuecat.com) wraps both behind one SDK. Implement
+`PurchaseProvider` for the platform and return it from `getPurchaseProvider()`;
+nothing else changes.
 
 ## License
 
