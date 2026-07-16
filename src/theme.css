@@ -79,7 +79,11 @@ body {
 .app {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 16px;
+  /* Respect iOS safe areas (Dynamic Island / notch / home indicator) so
+     content never sits under the camera cutout. Falls back to 16px on
+     platforms without insets. */
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
 /* ---------- Header ---------- */
