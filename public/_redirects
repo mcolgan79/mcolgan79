@@ -1,0 +1,4 @@
+# SPA fallback: serve index.html for any path that isn't a static file or an
+# API function. Pages Functions (/api/*) and real files take precedence, so
+# this only catches app deep links.
+/*    /index.html   200
