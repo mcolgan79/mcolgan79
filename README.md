@@ -139,6 +139,36 @@ probabilities and Monte Carlo simulation.
 React 18 + TypeScript + Vite. Charts are hand-rolled responsive SVG (no chart
 library). PWA via a small service worker; desktop/mobile shells via Tauri 2.
 
+## Monetization (free with ads · Pro removes them)
+
+OptPoP is free with ads; an **OptPoP Pro** subscription removes them. Ads are the
+*only* difference — every analytical feature stays free. The architecture is in
+place and provider-agnostic; the placeholders are ready to swap for real
+services:
+
+| Piece | File | Status |
+|---|---|---|
+| Entitlement state (single "is Pro?" source) | `src/lib/entitlement.tsx` | ✅ working |
+| Purchase abstraction (interface + mock) | `src/lib/purchases.ts` | ✅ mock; real providers slot in |
+| Ad slot (placeholder → real ad unit) | `src/components/AdSlot.tsx` | ✅ placeholder |
+| Paywall UI | `src/components/UpgradeDialog.tsx` | ✅ working (mock checkout) |
+| Prices / product IDs | `src/config/monetization.ts` | ⚙️ placeholders to fill |
+
+**To go live you supply the accounts and drop them in — no UI changes:**
+
+- **Ads.** Web/PWA → Google AdSense (`<ins class="adsbygoogle">` inside `AdSlot`);
+  native iOS/Android → the AdMob SDK. Each is account-gated. The Tauri app's CSP
+  (`src-tauri/tauri.conf.json`) must be extended with the ad network's domains.
+- **Payments.** Web → Stripe Checkout + a small backend to verify the session.
+  **iOS must use Apple in-app purchase (StoreKit)** for digital subscriptions —
+  Apple requires it and takes 15–30%. Android uses Google Play Billing.
+  [RevenueCat](https://www.revenuecat.com) wraps StoreKit + Play behind one SDK
+  if you want a single mobile integration.
+- Implement `PurchaseProvider` for the platform and return it from
+  `getPurchaseProvider()`; the rest of the app already talks only to that
+  interface. **Never trust the local flag as the source of truth in
+  production** — verify the receipt/subscription in `checkEntitlement()`.
+
 ## License
 
 **Proprietary — © 2026 Pera Pera, Inc. All rights reserved.** This is not

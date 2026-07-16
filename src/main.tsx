@@ -1,11 +1,14 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { EntitlementProvider } from './lib/entitlement'
 import './theme.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <EntitlementProvider>
+      <App />
+    </EntitlementProvider>
   </React.StrictMode>,
 )
 

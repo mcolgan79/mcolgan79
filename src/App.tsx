@@ -1,4 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { AdSlot } from './components/AdSlot'
 import { DistributionChart } from './components/DistributionChart'
 import { GreeksTable } from './components/GreeksTable'
 import {
@@ -12,8 +13,10 @@ import { LiveDataPanel } from './components/LiveDataPanel'
 import { PayoffChart } from './components/PayoffChart'
 import { Recommendations } from './components/Recommendations'
 import { StatTiles } from './components/StatTiles'
+import { UpgradeDialog } from './components/UpgradeDialog'
 import { analyze } from './lib/analyze'
 import { bsPrice } from './lib/black-scholes'
+import { useEntitlement } from './lib/entitlement'
 import { recommend } from './lib/recommend'
 import {
   dteFrom,
@@ -255,6 +258,9 @@ export default function App() {
   const analysis = useMemo(() => analyze(deferredStrategy), [deferredStrategy])
   const recs = useMemo(() => recommend(deferredStrategy, analysis), [deferredStrategy, analysis])
 
+  const { isPro } = useEntitlement()
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+
   return (
     <div className="app">
       <header className="app-header">
@@ -264,6 +270,15 @@ export default function App() {
         <span className="tagline">
           Option strategy risk, reward &amp; probabilities — POP · P50 · touch
         </span>
+        {isPro ? (
+          <span className="pro-badge" title="Ad-free subscriber">
+            Pro ✓
+          </span>
+        ) : (
+          <button className="upgrade-btn" onClick={() => setUpgradeOpen(true)}>
+            Remove ads
+          </button>
+        )}
         <button className="theme-toggle" onClick={cycleTheme} aria-label="Cycle color theme">
           Theme: {theme}
         </button>
@@ -312,10 +327,12 @@ export default function App() {
         </div>
         <main className="content" style={{ opacity: deferredStrategy === strategy ? 1 : 0.6 }}>
           <StatTiles st={deferredStrategy} a={analysis} />
+          <AdSlot placement="content-top" format="banner" onUpgrade={() => setUpgradeOpen(true)} />
           <PayoffChart st={deferredStrategy} a={analysis} />
           <DistributionChart st={deferredStrategy} a={analysis} />
           <GreeksTable st={deferredStrategy} a={analysis} />
           <Recommendations recs={recs} />
+          <AdSlot placement="content-bottom" format="banner" onUpgrade={() => setUpgradeOpen(true)} />
           <p className="disclaimer">
             All probabilities assume lognormal (Black–Scholes) dynamics at the position's
             vega-weighted IV with risk-neutral drift; longer-dated legs are marked to model
@@ -327,6 +344,7 @@ export default function App() {
           </p>
         </main>
       </div>
+      <UpgradeDialog open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </div>
   )
 }
