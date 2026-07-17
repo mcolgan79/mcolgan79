@@ -185,11 +185,33 @@ render only on the web — never in the Tauri app (its CSP blocks them by design
    never trusted. The functions port directly to Vercel/Netlify (same
    `/api/*` routes).
 
+**Webhook + KV (production hardening).** `functions/api/stripe-webhook.ts`
+verifies Stripe's signature (Web Crypto HMAC, replay-protected — see
+`src/lib/stripe-signature.ts`, unit-tested) and records each customer's ad-free
+state in Cloudflare KV. `subscription-status` then answers from that durable
+cache and only falls back to a live Stripe query on a cache miss, so
+cancellations/payment failures take effect immediately and most loads never
+call Stripe. To enable:
+
+1. Create a KV namespace and bind it to the Pages project as **`ENTITLEMENTS`**
+   (Settings → Functions → KV namespace bindings).
+2. Stripe → Developers → Webhooks → add endpoint
+   `https://<your-site>/api/stripe-webhook`, subscribe to
+   `checkout.session.completed`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.payment_failed`.
+3. Set **`STRIPE_WEBHOOK_SECRET`** (`whsec_…`) as a server secret.
+
+Without the binding/secret the webhook is a safe no-op and live verification
+still works.
+
+**Going live.** Flip Stripe to Live mode, create the live Product/Price, and
+swap the test `pk_`/`sk_`/`price_`/`whsec_` values for live ones in the host's
+env — then redeploy.
+
 **Cross-device caveat:** entitlement is keyed to the Stripe customer id stored
-on the device, which is a solid MVP but doesn't sync across a user's devices.
-True multi-device requires user accounts (sign-in / magic link) so the customer
-id can bind to an identity; a Stripe webhook writing to a KV/store is the
-production hardening (a `functions/api/stripe-webhook` handler is the place).
+on the device, a solid MVP that doesn't sync across a user's devices. True
+multi-device requires user accounts (sign-in / magic link) so the customer id
+binds to an identity.
 
 ### Native iOS/Android (later)
 
