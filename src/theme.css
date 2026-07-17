@@ -797,6 +797,38 @@ details.advanced .grid-2 {
   padding: 0 2px;
 }
 
+/* ---------- Footer ---------- */
+.app-footer {
+  margin-top: 20px;
+  padding: 16px 2px 8px;
+  border-top: 1px solid var(--grid);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  text-align: center;
+}
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+}
+.footer-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+}
+.footer-links a:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.footer-legal {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
 /* SVG text */
 .axis-text {
   font-size: 11px;

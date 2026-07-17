@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { AdSlot } from './components/AdSlot'
 import { DistributionChart } from './components/DistributionChart'
+import { Footer } from './components/Footer'
 import { GreeksTable } from './components/GreeksTable'
 import {
   InputsPanel,
@@ -348,6 +349,7 @@ export default function App() {
           </p>
         </main>
       </div>
+      <Footer />
       <UpgradeDialog open={upgradeOpen} onClose={() => setUpgradeOpen(false)} />
     </div>
   )
