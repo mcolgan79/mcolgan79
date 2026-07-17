@@ -1,8 +1,0 @@
-# Cloudflare Pages configuration for OptPoP.
-# - Static site is the Vite build output in dist/
-# - Serverless API lives in functions/ (auto-discovered as Pages Functions)
-# Secrets (STRIPE_SECRET_KEY, STRIPE_PRICE_ID, …) are set in the Cloudflare
-# dashboard or with `wrangler pages secret put`, never committed here.
-name = "optpop"
-compatibility_date = "2024-11-01"
-pages_build_output_dir = "dist"
