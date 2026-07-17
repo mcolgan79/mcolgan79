@@ -107,7 +107,21 @@ export class StripePurchaseProvider implements PurchaseProvider {
 
   async purchase(): Promise<boolean> {
     const res = await fetch(`${this.api}/create-checkout-session`, { method: 'POST' })
-    if (!res.ok) throw new Error('Could not start checkout. Please try again.')
+    if (!res.ok) {
+      let detail = ''
+      try {
+        detail = JSON.stringify(await res.json())
+      } catch {
+        /* non-JSON error body */
+      }
+      // Surface the real cause for debugging without alarming end users.
+      console.error(`OptPoP checkout failed (HTTP ${res.status}):`, detail)
+      throw new Error(
+        res.status === 500
+          ? 'Checkout isn’t configured yet. Please try again later.'
+          : 'Could not start checkout. Please try again.',
+      )
+    }
     const { url } = (await res.json()) as { url?: string }
     if (!url) throw new Error('Checkout is unavailable right now.')
     location.assign(url) // leaves the app; entitlement is granted on return
