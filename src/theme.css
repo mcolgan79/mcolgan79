@@ -138,10 +138,16 @@ body {
 .pro-badge {
   border: 1px solid var(--good);
   color: var(--good-text);
+  background: transparent;
   border-radius: 999px;
   padding: 4px 10px;
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
+  cursor: pointer;
+}
+.pro-badge:hover {
+  background: color-mix(in srgb, var(--good) 12%, transparent);
 }
 
 /* ---------- Ad slots ---------- */

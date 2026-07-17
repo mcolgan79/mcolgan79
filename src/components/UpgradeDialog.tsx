@@ -14,8 +14,9 @@ interface Props {
  * doesn't change.
  */
 export function UpgradeDialog({ open, onClose }: Props) {
-  const { isPro, loading, upgrade, restore } = useEntitlement()
+  const { isPro, loading, upgrade, restore, manage } = useEntitlement()
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -26,22 +27,20 @@ export function UpgradeDialog({ open, onClose }: Props) {
 
   if (!open) return null
 
-  const doUpgrade = async () => {
+  const run = async (fn: () => Promise<unknown>) => {
     setBusy(true)
+    setError(null)
     try {
-      await upgrade()
+      await fn()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong.')
     } finally {
       setBusy(false)
     }
   }
-  const doRestore = async () => {
-    setBusy(true)
-    try {
-      await restore()
-    } finally {
-      setBusy(false)
-    }
-  }
+  const doUpgrade = () => run(upgrade)
+  const doRestore = () => run(restore)
+  const doManage = () => run(manage)
 
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -59,7 +58,11 @@ export function UpgradeDialog({ open, onClose }: Props) {
           <>
             <h2 id="upgrade-title">You’re on {MONETIZATION.productName} ✓</h2>
             <p className="modal-sub">Ads are off. Thanks for supporting OptPoP.</p>
-            <button className="btn-primary" onClick={onClose}>
+            <button className="btn-primary" onClick={doManage} disabled={busy || loading}>
+              {busy ? 'Opening…' : 'Manage subscription'}
+            </button>
+            {error ? <p className="input-error">{error}</p> : null}
+            <button className="btn-link" onClick={onClose}>
               Done
             </button>
           </>
@@ -83,6 +86,7 @@ export function UpgradeDialog({ open, onClose }: Props) {
             <button className="btn-link" onClick={doRestore} disabled={busy || loading}>
               Restore purchase
             </button>
+            {error ? <p className="input-error">{error}</p> : null}
             <p className="modal-fineprint">
               Demo checkout — no real charge yet. Billing (App Store / Google Play /
               Stripe) is wired before public launch. Subscriptions renew until cancelled;

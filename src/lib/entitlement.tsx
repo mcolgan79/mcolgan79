@@ -18,6 +18,8 @@ export interface Entitlement {
   upgrade: () => Promise<boolean>
   /** Restore a previous purchase. */
   restore: () => Promise<boolean>
+  /** Open subscription management (Stripe portal on web; resets in mock). */
+  manage: () => Promise<void>
   /** Dev/QA only: drop the local entitlement (mock provider). */
   resetForTesting: () => Promise<void>
 }
@@ -67,14 +69,20 @@ export function EntitlementProvider({
     }
   }, [provider])
 
+  const manage = useCallback(async () => {
+    await provider.manage()
+    // Reflect any local change (mock resets to free); Stripe navigates away.
+    setIsPro(await provider.checkEntitlement())
+  }, [provider])
+
   const resetForTesting = useCallback(async () => {
     if (provider instanceof MockPurchaseProvider) await provider.clear()
     setIsPro(false)
   }, [provider])
 
   const value = useMemo(
-    () => ({ isPro, loading, upgrade, restore, resetForTesting }),
-    [isPro, loading, upgrade, restore, resetForTesting],
+    () => ({ isPro, loading, upgrade, restore, manage, resetForTesting }),
+    [isPro, loading, upgrade, restore, manage, resetForTesting],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

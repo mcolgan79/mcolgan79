@@ -204,6 +204,13 @@ call Stripe. To enable:
 Without the binding/secret the webhook is a safe no-op and live verification
 still works.
 
+**Manage / cancel.** Pro users tap the **Pro ✓** badge → **Manage subscription**,
+which opens the Stripe Billing Customer Portal (`functions/api/create-portal-session.ts`)
+to update the card, view invoices, or cancel. Enable it once in Stripe →
+Settings → Billing → Customer portal. (Same no-account caveat as above: it
+trusts the client-supplied customer id — gate it behind user auth before a real
+launch, since the portal can cancel a subscription.)
+
 **Going live.** Flip Stripe to Live mode, create the live Product/Price, and
 swap the test `pk_`/`sk_`/`price_`/`whsec_` values for live ones in the host's
 env — then redeploy.

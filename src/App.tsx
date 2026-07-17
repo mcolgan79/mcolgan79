@@ -271,9 +271,13 @@ export default function App() {
           Option strategy risk, reward &amp; probabilities — POP · P50 · touch
         </span>
         {isPro ? (
-          <span className="pro-badge" title="Ad-free subscriber">
+          <button
+            className="pro-badge"
+            onClick={() => setUpgradeOpen(true)}
+            title="Manage your subscription"
+          >
             Pro ✓
-          </span>
+          </button>
         ) : (
           <button className="upgrade-btn" onClick={() => setUpgradeOpen(true)}>
             Remove ads

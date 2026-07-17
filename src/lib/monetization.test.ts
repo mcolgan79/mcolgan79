@@ -46,6 +46,12 @@ describe('MockPurchaseProvider', () => {
     expect(await provider.checkEntitlement()).toBe(false)
   })
 
+  it('manage() resets a mock entitlement (so the flow can be re-tested)', async () => {
+    await provider.purchase()
+    await provider.manage()
+    expect(await provider.checkEntitlement()).toBe(false)
+  })
+
   it('two providers over the same store share entitlement', async () => {
     const store = memoryStore()
     const a = new MockPurchaseProvider(store)

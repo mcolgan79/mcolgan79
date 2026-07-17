@@ -25,6 +25,8 @@ export interface PurchaseProvider {
   purchase(): Promise<boolean>
   /** Restore a prior purchase on this account/device. */
   restore(): Promise<boolean>
+  /** Open subscription management (cancel / update card / invoices). */
+  manage(): Promise<void>
 }
 
 export interface KeyValueStore {
@@ -54,6 +56,11 @@ export class MockPurchaseProvider implements PurchaseProvider {
 
   async restore(): Promise<boolean> {
     return this.checkEntitlement()
+  }
+
+  /** No real billing to manage locally; clearing lets you re-test the flow. */
+  async manage(): Promise<void> {
+    await this.clear()
   }
 
   /** Testing/support affordance — not part of the public flow. */
@@ -109,6 +116,19 @@ export class StripePurchaseProvider implements PurchaseProvider {
 
   async restore(): Promise<boolean> {
     return this.checkEntitlement()
+  }
+
+  async manage(): Promise<void> {
+    const customer = this.store.getItem(STRIPE_CUSTOMER_KEY)
+    if (!customer) return
+    const res = await fetch(`${this.api}/create-portal-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer }),
+    })
+    if (!res.ok) throw new Error('Could not open the billing portal.')
+    const { url } = (await res.json()) as { url?: string }
+    if (url) location.assign(url)
   }
 
   private async status(query: Record<string, string>): Promise<{ pro: boolean; customerId?: string }> {
