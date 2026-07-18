@@ -228,6 +228,12 @@ Apple requires it and takes 15–30%; Android uses Google Play Billing.
 `PurchaseProvider` for the platform and return it from `getPurchaseProvider()`;
 nothing else changes.
 
+## Roadmap
+
+See [`ROADMAP.md`](./ROADMAP.md) for what's shipped and what's planned
+(richer visualizations, broker-portfolio import, a trade journal, and
+backtesting), with effort estimates and dependencies.
+
 ## License
 
 **Proprietary — © 2026 Pera Pera, Inc. All rights reserved.** This is not
