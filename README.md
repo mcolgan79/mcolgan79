@@ -160,18 +160,31 @@ The web/PWA path is implemented end to end and activates from build-time env
 vars (see [`.env.example`](./.env.example)). With none set, ads show
 placeholders and checkout uses the local mock, so the app always builds.
 
-**AdSense** — create a publisher account, add an ad unit per placement, then set
-at build time:
+**AdSense — no code editing required.** You never build or edit the app to turn
+on ads; you paste three IDs into your host's environment variables (the same
+place the Stripe keys live) and redeploy. The app auto-detects them and swaps
+the placeholder boxes for real ads. Steps:
 
-```
-VITE_ADSENSE_CLIENT=ca-pub-…          # your publisher id
-VITE_ADSENSE_SLOT_TOP=…               # data-ad-slot for the top banner
-VITE_ADSENSE_SLOT_BOTTOM=…            # data-ad-slot for the bottom banner
-```
+1. Apply at [adsense.google.com](https://adsense.google.com) with your live
+   domain. **Google's review takes days to weeks**; until approved, the
+   placeholders stay (ads can't show yet — this is normal).
+2. Once approved, from AdSense get your **Publisher ID** (`ca-pub-…`) and create
+   **two display ad units** (top + bottom), each of which gives a **slot ID**
+   (~10 digits).
+3. In your host (Cloudflare Pages → **Settings → Environment variables →
+   Production**), add these three, then **redeploy**:
 
-Also put your real `ads.txt` line (from the AdSense console) into
-[`public/ads.txt`](./public/ads.txt), and approve your domain in AdSense. Ads
-render only on the web — never in the Tauri app (its CSP blocks them by design).
+   | Variable | Value |
+   |---|---|
+   | `VITE_ADSENSE_CLIENT` | `ca-pub-…` (publisher id) |
+   | `VITE_ADSENSE_SLOT_TOP` | top banner slot id |
+   | `VITE_ADSENSE_SLOT_BOTTOM` | bottom banner slot id |
+
+4. Put your real `ads.txt` line (AdSense → **Sites → ads.txt**) into
+   [`public/ads.txt`](./public/ads.txt) and commit it.
+
+Ads render only on the web — never in the Tauri app (its CSP blocks them by
+design). With no IDs set, the app just shows placeholders, so it always builds.
 
 **Stripe** — create a recurring Price for OptPoP Pro, then:
 
