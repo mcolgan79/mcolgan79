@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "halt": false,
   "account_number": "465026961",
   "modes": {
@@ -21,55 +21,11 @@
     "daily_loss_halt_pct": 3,
     "account_floor_usd": 50
   },
-  "entry": {
-    "delta_min": 0.15,
-    "delta_max": 0.3,
-    "delta_target": 0.2,
-    "dte_min": 21,
-    "dte_max": 45,
-    "min_credit_pct_of_collateral": 0.5,
-    "min_open_interest": 100,
-    "max_bid_ask_spread_pct": 10,
-    "skip_earnings": true
-  },
-  "exit": {
-    "profit_target_pct": 50,
-    "manage_at_dte": 21,
-    "max_loss_pct_of_credit": 200
-  },
-  "sizing": {
-    "max_deployed_pct": 90,
-    "min_cash_buffer_usd": 50,
-    "max_positions": 5,
-    "max_collateral_per_underlying_pct": 40,
-    "small_account_cap_waiver_below_usd": 1500,
-    "max_contracts_per_position": 1
-  },
   "universe": {
     "exclude": [],
     "notes": "Quality screen is qualitative; see STRATEGY.md section 1."
   },
   "adjustment_bounds": {
-    "entry.delta_target": [
-      0.15,
-      0.3
-    ],
-    "entry.dte_min": [
-      14,
-      30
-    ],
-    "entry.dte_max": [
-      30,
-      60
-    ],
-    "exit.profit_target_pct": [
-      40,
-      70
-    ],
-    "exit.max_loss_pct_of_credit": [
-      100,
-      300
-    ],
     "daytrade.target_pct": [
       1.0,
       3.0
@@ -80,7 +36,8 @@
     ],
     "max_step_per_review": "one parameter family per review, one increment",
     "not_adjustable": [
-      "sizing.*",
+      "leaps.*",
+      "pmcc.*",
       "modes.*",
       "daytrade.max_trades_per_day",
       "daytrade.max_position_pct_of_settled_cash",
@@ -90,5 +47,29 @@
       "account_number",
       "adjustment_bounds"
     ]
+  },
+  "leaps": {
+    "strike_pct_of_spot": 110,
+    "expiration": "longest_listed",
+    "min_entry_dte": 366,
+    "sma_period": 200,
+    "max_dividend_yield_pct": 2.0,
+    "sma_exit_consecutive_days": 3,
+    "profit_target_pct": 100,
+    "exit_at_dte": 365,
+    "max_total_position_pct": 30,
+    "min_open_interest": 500,
+    "max_spread_pct_of_mid": 20
+  },
+  "pmcc": {
+    "enabled": false,
+    "reason": "Requires option level 3 and a margin account; agentic account is cash + level 2 and the order API rejects multi-leg on cash accounts.",
+    "short_call": {
+      "dte_min": 30,
+      "dte_max": 45,
+      "delta_max": 0.3,
+      "profit_target_pct": 50,
+      "manage_at_dte": 21
+    }
   }
 }

@@ -1,108 +1,84 @@
-# Strategy: The Wheel (Cash-Secured Puts → Covered Calls)
+# Strategy: LEAPS Trend Following (long calls + optional PMCC overlay)
 
-This document is the authoritative rule set. `/trade` executes these rules
-mechanically. Numbers in `{braces}` are read from `config/params.json` at run
-time — never hardcode them.
+Owner-defined rules (2026-08-06). `/trade` executes these mechanically.
+Numbers in `{braces}` come from `config/params.json` at run time.
 
-## State machine
+## Core idea
 
-```
-CASH ──sell CSP──▶ SHORT PUT ──expires worthless / closed at profit──▶ CASH
-                       │
-                   assigned
-                       ▼
-                  LONG 100 SHARES ──sell covered call──▶ SHORT CALL
-                       ▲                                      │
-                       │  expires worthless / closed at profit│
-                       └──────────────────────────────┤
-                                                          called away
-                                                              ▼
-                                                            CASH
-```
+Buy long-dated out-of-the-money LEAPS calls on stocks in confirmed uptrends;
+ride the trend with a mechanical exit. Optionally sell shorter-dated calls
+against them (poor man's covered call) to reduce cost basis — see §5 for why
+this module is currently disabled.
 
-## 1. Universe selection (which underlyings)
+## 1. Entry rules
 
-A symbol qualifies for new cash-secured puts only if ALL hold:
+A position may be opened only if ALL hold:
 
-- US-listed stock or ETF the account can afford: `strike × 100 ≤` available
-  collateral budget (see sizing).
-- Liquid options: open interest ≥ `{entry.min_open_interest}` on the candidate
-  contract, bid–ask spread ≤ `{entry.max_bid_ask_spread_pct}`% of mid.
-- Quality screen: profitable large/mid-cap or broad ETF you would be
-  comfortable owning at the strike. No biotechs awaiting binary events, no
-  meme-of-the-week, nothing on `{universe.exclude}`.
-- No earnings report between today and expiration when
-  `{entry.skip_earnings}` is true (verify with a web search).
-- Not already an open position in this system (max 1 position per underlying).
+- **Trend filter:** underlying trades above its 200-day SMA
+  (`get_equity_technical_indicators`, period 200, daily bars).
+- **Dividend filter:** trailing dividend yield ≤
+  `{leaps.max_dividend_yield_pct}`% — heavy dividend payers depress call
+  values and are excluded (owner amendment 2026-08-06).
+- **Expiration:** the LAST (longest-dated) expiration listed on the chain,
+  and it must be more than 365 days out — otherwise the underlying is
+  ineligible (exit rule 3 would trigger at entry).
+- **Strike:** the listed strike nearest to
+  `{leaps.strike_pct_of_spot}`% of the current underlying price.
+- **Liquidity sanity:** open interest ≥ `{leaps.min_open_interest}` and
+  bid–ask spread ≤ `{leaps.max_spread_pct_of_mid}`% of mid.
+- **Budget:** total cost basis of ALL open LEAPS (including this one) ≤
+  `{leaps.max_total_position_pct}`% of portfolio value.
+- Order: **limit buy at the mid**, GFD. If unfilled by next run, cancel and
+  re-evaluate; never chase more than one re-quote.
 
-## 2. Entry rules — cash-secured put
+When several candidates qualify, prefer (in order): larger/higher-quality
+underlying, higher OI, distance above the SMA.
 
-- Expiration: `{entry.dte_min}`–`{entry.dte_max}` days out (target ~30–45).
-- Strike: delta between `{entry.delta_min}` and `{entry.delta_max}`
-  (absolute value; from `get_option_quotes` greeks). Prefer the strike nearest
-  `{entry.delta_target}`.
-- Minimum premium: credit ≥ `{entry.min_credit_pct_of_collateral}` of
-  collateral (filters out junk yield).
-- Order: **limit, sell-to-open, at the mid**, GFD. If unfilled by next run,
-  cancel and re-evaluate — never chase by more than one re-quote.
+## 2. Exit rules — first one hit wins
 
-## 3. Entry rules — covered call (after assignment)
+1. **Trend break:** underlying CLOSES below its 200-day SMA for
+   `{leaps.sma_exit_consecutive_days}` consecutive trading days → sell at mid
+   next run.
+2. **Profit target:** option value reaches
+   `{leaps.profit_target_pct}`% gain over cost (i.e. 2× cost at 100%).
+   After entry fills, immediately place a GTC limit sell at 2× the fill
+   price so this can trigger between runs.
+3. **Time stop:** `{leaps.exit_at_dte}` days or less to expiration → sell at
+   mid next run, regardless of P&L.
 
-- Only against lots of 100 shares acquired via assignment.
-- Strike: at or above the **net cost basis** (assignment strike − total
-  premium collected on that underlying), delta ≤ `{entry.delta_max}`.
-  If no strike above basis offers acceptable premium, prefer waiting over
-  locking in a loss.
-- Same DTE window and order mechanics as puts.
+Track the SMA-breach streak in the journal on every run (consecutive_closes_below).
 
-## 4. Exit / management rules (checked every run, before any new entries)
+## 3. Position sizing
 
-- **Profit take:** buy-to-close any short option at
-  `{exit.profit_target_pct}`% of the credit received (e.g. collected $1.00,
-  close at $0.50 when target is 50). Use a GTC limit so it can fill between
-  runs.
-- **Time management:** at ≤ `{exit.manage_at_dte}` DTE, close the position at
-  whatever the market gives if it's profitable; if it's a put that is in the
-  money, either close or accept assignment per the wheel — never roll for a
-  net debit.
-- **Loss management:** if a short option's mark ≥
-  `{exit.max_loss_pct_of_credit}`% of credit received (e.g. 200% = the loss is
-  2× the credit), close it. Taking the small loss beats hoping.
-- **Assignment handling:** if shares appear from an assigned put, record the
-  net cost basis in the journal and switch that underlying to covered-call
-  mode. If shares are called away, realize the cycle P&L and return the
-  underlying to the CSP-eligible pool.
+- Total LEAPS cost basis ≤ `{leaps.max_total_position_pct}`% of portfolio
+  value at time of entry. No other per-position cap — the budget is the cap.
+- Long calls only. No margin, no shorting.
 
-## 5. Position sizing
+## 4. Order placement protocol (every order, no exceptions)
 
-- Deploy at most `{sizing.max_deployed_pct}`% of account value as collateral;
-  always keep ≥ `{sizing.min_cash_buffer_usd}` cash free.
-- Max `{sizing.max_positions}` concurrent positions.
-- Max `{sizing.max_collateral_per_underlying_pct}`% of account value in any
-  one underlying. **Small-account waiver:** below
-  `{sizing.small_account_cap_waiver_below_usd}` account value this cap is
-  waived — a single cash-secured put cannot fit under it, and one position is
-  the diversification limit at that size. All other sizing rules still apply.
-- `{sizing.max_contracts_per_position}` contract(s) per position.
+1. `review_option_order` first with `chain_symbol` + `underlying_type`.
+2. Abort on any alert about buying power, restrictions, or a quote moved
+   > 10% from the price used for selection.
+3. `place_option_order` with a fresh UUID `ref_id` (reuse only on transport
+   retries).
+4. Log to `journal/leaps.csv` immediately, whatever the outcome.
 
-## 6. Order placement protocol (every order, no exceptions)
+## 5. PMCC overlay (DISABLED — account limitation)
 
-1. `review_option_order` first, with `chain_symbol` + `underlying_type` so
-   fees and collateral come back.
-2. Abort the order if the review surfaces any alert about buying power,
-   account restrictions, pattern-day-trading, or a quote that moved > 10%
-   from the price used for selection.
-3. Place with `place_option_order` using a fresh UUID `ref_id`; reuse the same
-   `ref_id` only when retrying a transport failure.
-4. Log the order to the journal immediately, whatever the outcome.
+Selling a call against a LEAPS (a diagonal spread) requires **options
+Level 3**, and the agentic order API does not support multi-leg orders on
+**cash** accounts at all. The Agentic account is cash + Level 2, so a short
+call would be treated as naked and rejected. This module stays off until the
+account supports it (`{pmcc.enabled}` = false).
 
-## 7. Self-adjustment (executed by `/review`, never by `/trade`)
+Rules when enabled: sell 1 call per LEAPS contract, strike above the LEAPS
+strike and above current spot, 30–45 DTE, delta ≤ 0.30; close or roll at
+50% profit or 21 DTE; never let the short strike drop below the LEAPS
+break-even.
 
-`/review` computes from `journal/trades.csv`: win rate, average credit,
-realized P&L, annualized return on collateral, and max single-trade loss. It
-may then move `entry.delta_target`, `entry.dte_min/max`,
-`exit.profit_target_pct`, and `exit.max_loss_pct_of_credit` — **only within
-`adjustment_bounds`**, only one step per review, and every change must be
-appended to `journal/parameter_changes.md` with the evidence that motivated
-it. Sizing limits and safety rails are not adjustable by `/review` under any
-circumstances.
+## 6. Self-adjustment policy
+
+The LEAPS rules above are owner-specified and are NOT adjustable by
+`/review` — any change requires the owner. `/review` reports performance
+(win rate, avg gain, time-in-trade, exit-reason breakdown) and may only tune
+day-trade-mode parameters within `adjustment_bounds`.

@@ -1,0 +1,1 @@
+trade_id,date_opened,symbol,option_id,expiration,strike,contracts,debit_paid,underlying_at_entry,sma200_at_entry,consecutive_closes_below_sma,status,date_closed,credit_received,realized_pnl,exit_reason,order_id,notes
