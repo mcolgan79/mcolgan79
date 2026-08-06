@@ -6,7 +6,10 @@
     "daytrade_below_usd": 500
   },
   "daytrade": {
-    "entry_window_et": ["09:45", "11:00"],
+    "entry_window_et": [
+      "09:45",
+      "11:00"
+    ],
     "exit_by_et": "15:45",
     "max_trades_per_day": 1,
     "max_position_pct_of_settled_cash": 95,
@@ -20,8 +23,8 @@
   },
   "entry": {
     "delta_min": 0.15,
-    "delta_max": 0.30,
-    "delta_target": 0.20,
+    "delta_max": 0.3,
+    "delta_target": 0.2,
     "dte_min": 21,
     "dte_max": 45,
     "min_credit_pct_of_collateral": 0.5,
@@ -39,6 +42,7 @@
     "min_cash_buffer_usd": 50,
     "max_positions": 5,
     "max_collateral_per_underlying_pct": 40,
+    "small_account_cap_waiver_below_usd": 1500,
     "max_contracts_per_position": 1
   },
   "universe": {
@@ -46,14 +50,45 @@
     "notes": "Quality screen is qualitative; see STRATEGY.md section 1."
   },
   "adjustment_bounds": {
-    "entry.delta_target": [0.15, 0.3],
-    "entry.dte_min": [14, 30],
-    "entry.dte_max": [30, 60],
-    "exit.profit_target_pct": [40, 70],
-    "exit.max_loss_pct_of_credit": [100, 300],
-    "daytrade.target_pct": [1.0, 3.0],
-    "daytrade.stop_pct": [0.5, 1.5],
+    "entry.delta_target": [
+      0.15,
+      0.3
+    ],
+    "entry.dte_min": [
+      14,
+      30
+    ],
+    "entry.dte_max": [
+      30,
+      60
+    ],
+    "exit.profit_target_pct": [
+      40,
+      70
+    ],
+    "exit.max_loss_pct_of_credit": [
+      100,
+      300
+    ],
+    "daytrade.target_pct": [
+      1.0,
+      3.0
+    ],
+    "daytrade.stop_pct": [
+      0.5,
+      1.5
+    ],
     "max_step_per_review": "one parameter family per review, one increment",
-    "not_adjustable": ["sizing.*", "modes.*", "daytrade.max_trades_per_day", "daytrade.max_position_pct_of_settled_cash", "daytrade.daily_loss_halt_pct", "daytrade.account_floor_usd", "halt", "account_number", "adjustment_bounds"]
+    "not_adjustable": [
+      "sizing.*",
+      "modes.*",
+      "daytrade.max_trades_per_day",
+      "daytrade.max_position_pct_of_settled_cash",
+      "daytrade.daily_loss_halt_pct",
+      "daytrade.account_floor_usd",
+      "halt",
+      "account_number",
+      "adjustment_bounds"
+    ]
   }
 }

@@ -14,7 +14,7 @@ CASH ──sell CSP──▶ SHORT PUT ──expires worthless / closed at profi
                   LONG 100 SHARES ──sell covered call──▶ SHORT CALL
                        ▲                                      │
                        │  expires worthless / closed at profit│
-                       └──────────────────────────────────────┤
+                       └──────────────────────────────┤
                                                           called away
                                                               ▼
                                                             CASH
@@ -79,7 +79,10 @@ A symbol qualifies for new cash-secured puts only if ALL hold:
   always keep ≥ `{sizing.min_cash_buffer_usd}` cash free.
 - Max `{sizing.max_positions}` concurrent positions.
 - Max `{sizing.max_collateral_per_underlying_pct}`% of account value in any
-  one underlying.
+  one underlying. **Small-account waiver:** below
+  `{sizing.small_account_cap_waiver_below_usd}` account value this cap is
+  waived — a single cash-secured put cannot fit under it, and one position is
+  the diversification limit at that size. All other sizing rules still apply.
 - `{sizing.max_contracts_per_position}` contract(s) per position.
 
 ## 6. Order placement protocol (every order, no exceptions)
