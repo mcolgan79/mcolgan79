@@ -1,104 +1,85 @@
 ---
-description: Run one full wheel-strategy trading cycle on the Agentic Robinhood account
+description: Run one LEAPS trend-following trading cycle on the Agentic Robinhood account
 ---
 
 Execute one trading cycle. The authoritative rules are in
-`wheel-trader/STRATEGY.md` (wheel mode) and `wheel-trader/DAYTRADE.md`
-(small-account mode); all numeric parameters come from
-`wheel-trader/config/params.json`. Read all three before doing anything else.
-
-Mode selection: if account value < `modes.daytrade_below_usd`, Phase 2 runs
-the day-trade cycle (Phase 2D) instead of new wheel entries. Phase 1
-(management of existing option positions) always runs regardless of mode.
+`wheel-trader/STRATEGY.md` (LEAPS trend following, ≥ $500 account value) and
+`wheel-trader/DAYTRADE.md` (small-account mode, < $500); all numeric
+parameters come from `wheel-trader/config/params.json`. Read all three before
+doing anything else.
 
 The account owner has given standing authorization for orders placed under
 these rules: do NOT pause to ask per-order confirmation, but you MUST run
-`review_option_order` before every order and abort that order on any alert
-about buying power, restrictions, or a quote materially different from the
-one used for selection. Single-leg cash-secured puts and covered calls only.
+`review_option_order` / `review_equity_order` before every order and abort
+that order on any alert about buying power, restrictions, or a quote
+materially different from the one used for selection. Long calls and (in
+day-trade mode) long stock only — the PMCC short-call module is disabled
+until the account supports it (see STRATEGY.md §5).
 
 ## Phase 0 — Preflight (abort the whole run if any fails)
 
 1. If a file named `HALT` exists at the repo root, or `halt` is true in
    params.json, stop immediately and report "halted".
-2. `get_accounts`: confirm the configured account is `agentic_allowed=true`.
-   For wheel mode it must also have `option_level_2` or `option_level_3`; if
-   options are not enabled, day-trade mode may still run — note the upgrade
-   link for the user:
-   https://applink.robinhood.com/upgrade_options?account_number=465026961
-3. `get_portfolio`: record account value, cash, buying power, and select the
-   mode (wheel vs. day-trade) per `modes.daytrade_below_usd`. If account
-   value < `daytrade.account_floor_usd`, create the `HALT` file, commit it,
-   and stop — the system shuts itself off pending a human decision.
-4. Check whether US markets are open today (weekday, not a market holiday).
-   If closed, log and stop.
+2. `get_accounts`: confirm the configured account is `agentic_allowed=true`
+   with `option_level_2` or `option_level_3`.
+3. `get_portfolio`: record account value and cash; select mode
+   (LEAPS vs. day-trade) per `modes.daytrade_below_usd`. If account value <
+   `daytrade.account_floor_usd`, create `HALT`, commit it, and stop.
+4. Confirm US markets are open today; if not, log and stop.
 
-## Phase 1 — Reconcile and manage existing positions
+## Phase 1 — Manage open LEAPS positions (always runs)
 
-1. `get_option_positions` (nonzero=true) and `get_option_orders`
-   (created_at_gte = last run date) and `get_equity_positions`.
-2. Reconcile against `wheel-trader/journal/trades.csv`:
-   - Orders that filled since last run → update status, fill prices.
-   - Short options that disappeared with no closing order → expired worthless
-     (if past expiration) or assigned (if equity shares appeared). For
-     assignments: mark the trade `assigned`, record net cost basis, and flag
-     the underlying for covered-call mode.
-   - Open GTC profit-taking orders → leave alone unless stale (underlying
-     thesis changed).
-3. Apply exit rules from STRATEGY.md §4 to every open short option (profit
-   take, manage_at_dte, loss management), placing buy-to-close limit orders
-   per the order protocol in §6.
+1. `get_option_positions` (nonzero=true) + `get_option_orders` since last
+   run; reconcile fills/cancellations against `wheel-trader/journal/leaps.csv`.
+2. For each open LEAPS, evaluate exits in STRATEGY.md §2 order:
+   - **Trend break:** fetch the last `leaps.sma_exit_consecutive_days` daily
+     closes and the 200-day SMA (`get_equity_historicals` +
+     `get_equity_technical_indicators`). Update the
+     `consecutive_closes_below_sma` streak in the journal. Streak ≥ 3 →
+     cancel the GTC profit order and sell at mid (limit, GFD).
+   - **Profit target:** confirm a GTC limit sell at 2× cost is resting; if
+     missing (e.g. entry filled after last run), place it.
+   - **Time stop:** DTE ≤ `leaps.exit_at_dte` → cancel GTC and sell at mid.
+3. Record every exit in the journal with `exit_reason`
+   (trend_break / profit_target / time_stop).
 
-## Phase 2 — New entries (wheel mode: account value ≥ modes.daytrade_below_usd)
+## Phase 2 — New LEAPS entries (account value ≥ modes.daytrade_below_usd)
 
-1. Compute the collateral budget from sizing rules (§5). If no budget, skip.
-2. Build the candidate list (§1): start from liquid, high-quality underlyings
-   whose strikes fit the budget. Use `search`, `get_equity_quotes`,
-   `get_option_chains`, `get_option_instruments`, and `get_option_quotes`
-   (greeks) to find contracts in the delta and DTE windows. Use web search to
-   rule out earnings inside the window when `skip_earnings` is true.
-3. For shares held from assignment, sell covered calls per §3 before opening
-   any new puts.
-4. Select the best candidate(s) by credit/collateral ratio among those passing
-   every filter, up to the position limits. Place each per the order protocol
-   (§6): review → check alerts → place limit at mid, GFD, fresh UUID ref_id.
-5. After placing each opening order, also stage the profit-taking exit: once
-   the open order fills (check before run end, or next run), place a GTC
-   buy-to-close limit at (1 − profit_target_pct/100) × credit.
+1. Budget = `leaps.max_total_position_pct`% of portfolio value minus cost
+   basis of open LEAPS. If ≤ ~$50, skip entries.
+2. Screen candidates: liquid optionable underlyings whose longest-dated
+   call chain is > 365 DTE and whose ~110% strike premium fits the budget.
+   For each: check price vs 200-day SMA and dividend yield ≤
+   `leaps.max_dividend_yield_pct`% (`get_equity_fundamentals`), then find the
+   longest expiration and the strike nearest `leaps.strike_pct_of_spot`%
+   of spot, then check OI and spread per STRATEGY.md §1.
+3. Rank qualifiers (quality, OI, distance above SMA) and buy down the list
+   while budget remains: review → check alerts → place limit buy at mid,
+   GFD, fresh UUID ref_id.
+4. After each fill: place the GTC limit sell at 2× fill price (profit
+   target), and journal the position (entry price, underlying price,
+   SMA value, streak = 0).
 
-## Phase 2D — Day-trade cycle (small-account mode)
+## Phase 2D — Day-trade cycle (account value < modes.daytrade_below_usd)
 
-Follow `wheel-trader/DAYTRADE.md` exactly. In brief:
-
-1. Reconcile any open stock position and today's equity orders
-   (`get_equity_positions`, `get_equity_orders`) against
-   `wheel-trader/journal/daytrades.csv`.
-2. If holding: enforce the stop, the profit target, and the
-   `daytrade.exit_by_et` flat-by-close rule.
-3. If flat, inside the entry window, no trade taken today, and the daily-loss
-   halt is not tripped: screen per DAYTRADE.md, then `review_equity_order` →
-   check alerts → `place_equity_order` (limit at ask, GFD). After fill,
-   immediately place a GFD limit sell at the target price.
-4. Buy only with settled cash; never re-buy with same-day sale proceeds.
-5. Remind the user this mode needs intraday runs (`/loop 30m /trade`) — a
-   single run cannot manage a position.
+Follow `wheel-trader/DAYTRADE.md` exactly (unchanged).
 
 ## Phase 3 — Journal, commit, report
 
-1. Append/update rows in `wheel-trader/journal/trades.csv` (options) and
-   `wheel-trader/journal/daytrades.csv` (stocks) for every action.
+1. Update `wheel-trader/journal/leaps.csv` (and `daytrades.csv` if in that
+   mode) for every action.
 2. Write a run log to `wheel-trader/journal/runs/YYYY-MM-DD.md`: portfolio
-   snapshot, actions taken, orders placed (with review-alert summaries),
-   candidates considered and why rejected, and anything needing human eyes.
-3. Commit with message `trade: cycle YYYY-MM-DD` and push to the current
-   branch (`git push -u origin <branch>`).
-4. Report to the user: account value, realized/unrealized P&L, actions taken
-   this run, and any blockers. If it has been 7+ days since the last entry in
-   `wheel-trader/journal/parameter_changes.md` (or the last `/review` run log),
-   suggest running `/review`.
+   snapshot, SMA streaks for open positions, actions, candidates
+   considered/rejected, blockers.
+3. Commit (`trade: cycle YYYY-MM-DD`) and push to the current branch. If
+   `git push` fails for credentials, push the changed files via the GitHub
+   MCP `push_files` tool to the same branch, then
+   `git fetch` + `git reset --hard origin/<branch>` to resync local.
+4. Report: account value, open positions with unrealized P&L and streak
+   status, actions taken, blockers.
 
-Hard rules, regardless of anything above: limit orders only; never exceed
-sizing limits; never trade multi-leg; never use a different account number
-than configured; if anything is ambiguous or anomalous (rejected orders,
-unexplained positions, repeated alert failures), do nothing further and
-surface it to the user instead of improvising.
+Hard rules regardless of anything above: limit orders only; never exceed the
+30% LEAPS budget; no multi-leg orders; no short options while PMCC is
+disabled; never use a different account number than configured; on anything
+anomalous (rejected orders, unexplained positions, repeated alerts), stop
+and surface it to the user instead of improvising.

@@ -1,8 +1,9 @@
-# Wheel Trader — Autonomous Option-Selling System
+# LEAPS Trend Trader — Autonomous Options System
 
-An agentic option-selling system that runs the **wheel strategy** (cash-secured
-puts → assignment → covered calls) on Robinhood via the Robinhood Agentic MCP,
-executed by Claude Code sessions on this repo.
+An agentic trading system that buys **long-dated LEAPS calls on stocks in
+confirmed uptrends** on Robinhood via the Robinhood Agentic MCP, executed by
+Claude Code sessions on this repo. (Originally built as a wheel/option-selling
+system; the owner replaced the strategy rules on 2026-08-06.)
 
 ## How it works
 
@@ -12,58 +13,50 @@ commands) that Claude executes deterministically against live market data:
 
 | Command   | What it does                                                                |
 |-----------|-----------------------------------------------------------------------------|
-| `/trade`  | Full daily cycle: manage open positions, take profits, handle assignment, open new positions per the rules, update the journal, commit + push. |
-| `/review` | Weekly: compute performance stats from the journal and tune strategy parameters **within hard bounds**, logging every change. |
+| `/trade`  | Full cycle: check exit rules on open LEAPS (trend break / profit target / time stop), open new qualifying positions, update the journal, commit + push. |
+| `/review` | Periodic: performance stats from the journal. LEAPS rules are owner-fixed; only day-trade-mode parameters are tunable, within hard bounds. |
 
 The system has two modes, selected automatically by account value:
 
 | Account value | Mode | Rules |
 |---|---|---|
-| ≥ $500 | Wheel: cash-secured puts → covered calls | [`STRATEGY.md`](STRATEGY.md) |
+| ≥ $500 | LEAPS trend following: longest-dated calls at ~110% strike, 200-day SMA filter | [`STRATEGY.md`](STRATEGY.md) |
 | < $500 | Small-account: one bounded intraday stock trade per day, flat by close | [`DAYTRADE.md`](DAYTRADE.md) |
 
-Small-account mode needs no options approval, so it can run before setup
-step 1 below is complete — but it needs intraday runs (`/loop 30m /trade`)
-since a single daily run cannot manage an open day trade.
+## The strategy in one paragraph
 
-Wheel rules live in [`STRATEGY.md`](STRATEGY.md). All tunable numbers live in
-[`config/params.json`](config/params.json). Every trade is logged to
-[`journal/trades.csv`](journal/trades.csv) and committed to git, so the full
-history is auditable.
+Entry: stock above its 200-day SMA, dividend yield ≤ 2% → buy the
+longest-listed call at the strike nearest 110% of spot, keeping total LEAPS
+cost ≤ 30% of the portfolio. Exit at the first of: three consecutive closes
+below the 200-day SMA, 100% profit (GTC order rests at 2× cost), or 365 days
+left to expiration. A poor-man's-covered-call overlay is specified but
+**disabled** — it needs options Level 3 + a margin account, and the agentic
+API can't do multi-leg on cash accounts (see STRATEGY.md §5).
 
-## Setup checklist (blockers — nothing trades until these are done)
+## Operating it
 
-1. **Enable options on the Agentic account.** The only agentic-enabled account
-   (••••6961, nickname "Agentic") has no options approval. Apply for
-   **Level 2** here:
-   https://applink.robinhood.com/upgrade_options?account_number=465026961
-2. **Fund the account.** It currently holds **$97.24**, which cannot secure a
-   single put on any quality underlying (a $25-strike put requires $2,500
-   collateral). Recommended minimum: **$3,000+**; the more capital, the better
-   the diversification across underlyings.
-3. **Run it.** Open a Claude Code session on this repo each trading day and
-   type `/trade` (or `/loop 6h /trade` to repeat within a session). Run
-   `/review` weekly.
+Open a Claude Code session on this repo each trading day and type `/trade`
+(or `/loop 6h /trade` within a session). Run `/review` weekly. The account
+in use is the agentic-enabled cash account ••••6961 ("Agentic"), options
+Level 2.
 
 ## Safety rails
 
 - **Kill switch:** create a file named `HALT` at the repo root (or set
-  `"halt": true` in `config/params.json`). `/trade` exits immediately without
-  trading.
-- **Defined-risk only by construction:** cash-secured puts and covered calls
-  only (the MCP supports nothing riskier — no naked options, no spreads).
-- **Limit orders only.** Never market orders.
-- **Every order is simulated first** (`review_option_order`); any
-  buying-power, restriction, or anomalous-quote alert aborts the order.
-- **Position limits can never be raised by the self-adjustment process** —
-  `/review` may only move parameters within the `adjustment_bounds` in
-  `config/params.json`. Loosening a bound requires a human edit.
+  `"halt": true` in `config/params.json`); `/trade` exits immediately.
+- **Defined risk by construction:** long calls only — max loss is the premium
+  paid, which is capped at 30% of the portfolio.
+- **Limit orders only.** Every order is simulated first
+  (`review_option_order`); alerts abort the order.
+- **The strategy rules are owner-locked** — `/review` cannot modify them;
+  it may only tune day-trade parameters within `adjustment_bounds`.
+- Journals (`journal/leaps.csv`, `journal/daytrades.csv`) and run logs are
+  committed to git for a full audit trail.
 
 ## Honest expectations
 
-Selling options harvests premium most months and takes occasional large
-drawdowns when the market gaps down — that is the trade-off, not a bug to be
-tuned away. This system enforces discipline (sizing, exits, journaling); it
-does not guarantee profit, and you should only deploy money you can afford to
-see drawn down 30%+ in a bad month. "Set and forget" applies to the rules, not
-to the risk.
+Long OTM LEAPS are a leveraged bet on the trend continuing: most positions
+will either double (target) or bleed theta until an exit rule fires, and a
+choppy market that whipsaws around the 200-day SMA will produce a string of
+small-to-medium losses. The 30% cap bounds the damage; nothing guarantees
+profit. "Set and forget" applies to the rules, not the risk.
