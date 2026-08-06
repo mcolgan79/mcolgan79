@@ -17,8 +17,9 @@ A position may be opened only if ALL hold:
 - **Trend filter:** underlying trades above its 200-day SMA
   (`get_equity_technical_indicators`, period 200, daily bars).
 - **Dividend filter:** trailing dividend yield ≤
-  `{leaps.max_dividend_yield_pct}`% — heavy dividend payers depress call
-  values and are excluded (owner amendment 2026-08-06).
+  `{leaps.max_dividend_yield_pct}`% — the intent is to exclude names whose
+  return comes as yield rather than price appreciation, since long calls
+  capture only the latter (owner amendment 2026-08-06, revised to 3%).
 - **Expiration:** the LAST (longest-dated) expiration listed on the chain,
   and it must be more than 365 days out — otherwise the underlying is
   ineligible (exit rule 3 would trigger at entry).
@@ -33,6 +34,11 @@ A position may be opened only if ALL hold:
 
 When several candidates qualify, prefer (in order): larger/higher-quality
 underlying, higher OI, distance above the SMA.
+
+Sizing rule of thumb (measured 2026-08-06): a ~110% strike LEAPS costs about
+9–11% of share price on low-IV underlyings (16–20% IV) and ~27% on high-IV
+ones (60%+ IV). Use this to pre-filter candidates by share price before
+pulling chains.
 
 ## 2. Exit rules — first one hit wins
 

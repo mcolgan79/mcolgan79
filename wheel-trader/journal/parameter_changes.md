@@ -36,3 +36,11 @@ _No changes yet._
 - Evidence: owner directive — no heavy dividend stocks (>2% yield). Disqualified
   the pending VALE Jan-2028 $17c entry (VALE yields well above 2%).
 - Bounds check: n/a (owner change)
+
+## 2026-08-06 (owner amendment, revision)
+- Changed: `leaps.max_dividend_yield_pct` 2.0 → 3.0
+- Evidence: owner clarified intent — the filter exists to avoid names whose
+  total return is paid out as yield instead of price appreciation, not to
+  exclude all dividend payers. 2% was excluding sector ETFs (XLE 2.55%,
+  XLP 2.52%, XLU 2.75%, KRE 2.29%) that are ordinary appreciation vehicles.
+- Bounds check: n/a (owner change)

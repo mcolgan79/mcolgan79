@@ -53,7 +53,7 @@
     "expiration": "longest_listed",
     "min_entry_dte": 366,
     "sma_period": 200,
-    "max_dividend_yield_pct": 2.0,
+    "max_dividend_yield_pct": 3.0,
     "sma_exit_consecutive_days": 3,
     "profit_target_pct": 100,
     "exit_at_dte": 365,
