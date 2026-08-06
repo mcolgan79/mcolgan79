@@ -44,3 +44,13 @@ _No changes yet._
   exclude all dividend payers. 2% was excluding sector ETFs (XLE 2.55%,
   XLP 2.52%, XLU 2.75%, KRE 2.29%) that are ordinary appreciation vehicles.
 - Bounds check: n/a (owner change)
+
+## 2026-08-06 (owner directive — interim share position)
+- Changed: added an interim TQQQ share holding, capped at
+  `shares.tqqq_max_pct_of_portfolio` = 30% of account value.
+- Evidence: owner directive — "for the time being, let's just buy TQQQ shares
+  (not options) up to 30% of the account". No LEAPS entry was affordable at a
+  $607 account (see runs/2026-08-06.md).
+- Note: NO exit rule was specified by the owner. `/trade` holds the position
+  and reports it; it will not sell without an owner rule or instruction.
+- Bounds check: n/a (owner change)

@@ -1,0 +1,2 @@
+date_opened,symbol,type,quantity,entry_price,cost_basis,pct_of_portfolio_at_entry,order_id,status,date_closed,exit_price,realized_pnl,notes
+2026-08-06,TQQQ,shares,2,71.9099,143.82,23.7,6a74b482-fc75-458c-a36f-de921b6dd574,open,,,,"Owner directive: hold TQQQ shares up to 30% of account. Interim placeholder while LEAPS budget is too small. No exit rule specified by owner."

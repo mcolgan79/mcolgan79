@@ -71,5 +71,13 @@
       "profit_target_pct": 50,
       "manage_at_dte": 21
     }
+  },
+  "shares": {
+    "enabled": true,
+    "symbol": "TQQQ",
+    "max_pct_of_portfolio": 30,
+    "order_type": "marketable_limit",
+    "exit_rule": null,
+    "notes": "Owner directive 2026-08-06. Interim position while the LEAPS budget is too small to buy a compliant contract. No exit rule specified \u2014 /trade holds and reports, and must not sell without an owner rule."
   }
 }

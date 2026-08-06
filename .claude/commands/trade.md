@@ -43,6 +43,19 @@ until the account supports it (see STRATEGY.md §5).
 3. Record every exit in the journal with `exit_reason`
    (trend_break / profit_target / time_stop).
 
+## Phase 1S — Interim share holding (owner directive)
+
+If `shares.enabled` is true in params.json:
+
+1. Reconcile the position in `wheel-trader/journal/holdings.csv` against
+   `get_equity_positions`; report quantity, average cost, and unrealized P&L.
+2. If the holding is below `shares.max_pct_of_portfolio`% of portfolio value
+   and settled cash allows, you MAY top it up to that cap with a marketable
+   limit buy (review → check alerts → place). Never exceed the cap.
+3. **Do NOT sell.** No exit rule has been specified by the owner. Hold and
+   report; sell only on an explicit owner instruction or a written exit rule
+   in `shares.exit_rule`. Flag in the run log that the position has no exit.
+
 ## Phase 2 — New LEAPS entries (account value ≥ modes.daytrade_below_usd)
 
 1. Budget = `leaps.max_total_position_pct`% of portfolio value minus cost
