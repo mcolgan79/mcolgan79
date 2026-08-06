@@ -25,7 +25,7 @@ The system has two modes, selected automatically by account value:
 
 ## The strategy in one paragraph
 
-Entry: stock above its 200-day SMA, dividend yield ≤ 2% → buy the
+Entry: stock above its 200-day SMA, dividend yield ≤ 3% → buy the
 longest-listed call at the strike nearest 110% of spot, keeping total LEAPS
 cost ≤ 30% of the portfolio. Exit at the first of: three consecutive closes
 below the 200-day SMA, 100% profit (GTC order rests at 2× cost), or 365 days
