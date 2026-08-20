@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+exe = ["pyinstaller>=6"]
 
 [project.scripts]
 trader = "autotrader.cli:main"

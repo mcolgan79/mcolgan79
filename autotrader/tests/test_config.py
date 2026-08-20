@@ -85,3 +85,61 @@ def test_missing_credentials_raise_a_helpful_error(monkeypatch):
         monkeypatch.delenv(key, raising=False)
     with pytest.raises(ConfigError, match="Missing Alpaca credentials"):
         Config().require_credentials()
+
+
+@pytest.mark.parametrize(
+    "given, expected",
+    [
+        # Alpaca's dashboard shows the endpoint with /v2 on the end, but the SDK
+        # appends its own version, so the suffix has to come off.
+        ("https://paper-api.alpaca.markets/v2", "https://paper-api.alpaca.markets"),
+        ("https://paper-api.alpaca.markets/v2/", "https://paper-api.alpaca.markets"),
+        ("  https://paper-api.alpaca.markets/  ", "https://paper-api.alpaca.markets"),
+        ("https://paper-api.alpaca.markets", "https://paper-api.alpaca.markets"),
+        ("https://data.alpaca.markets/v1beta3", "https://data.alpaca.markets"),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_base_url_strips_the_api_version(given, expected):
+    from autotrader.config import normalize_base_url
+
+    assert normalize_base_url(given) == expected
+
+
+def test_config_normalizes_a_pasted_endpoint(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[broker]\nbase_url = "https://paper-api.alpaca.markets/v2"\n')
+    assert load_config(path).broker.base_url == "https://paper-api.alpaca.markets"
+
+
+def test_dotenv_is_found_in_the_home_directory(tmp_path, monkeypatch):
+    """A launcher can start anywhere, so ~/.autotrader/.env has to work."""
+    home = tmp_path / "home"
+    (home / ".autotrader").mkdir(parents=True)
+    (home / ".autotrader" / ".env").write_text("APCA_API_KEY_ID=from_home\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.chdir(tmp_path)  # no .env here
+    monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
+
+    load_dotenv()
+
+    assert os.environ["APCA_API_KEY_ID"] == "from_home"
+
+
+def test_a_local_dotenv_beats_the_home_one(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".autotrader").mkdir(parents=True)
+    (home / ".autotrader" / ".env").write_text("APCA_API_KEY_ID=from_home\n")
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    (workdir / ".env").write_text("APCA_API_KEY_ID=from_project\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.chdir(workdir)
+    monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
+
+    load_dotenv()
+
+    assert os.environ["APCA_API_KEY_ID"] == "from_project"

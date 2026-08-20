@@ -13,11 +13,67 @@ trader run --loop      # keep evaluating on an interval
 trader history         # why did it do that?
 ```
 
-## Quickstart
+## Install it on your laptop
+
+**Windows** — double-click `setup.bat` (or run it from a Command Prompt). It
+finds Python, builds a virtual environment, installs everything, prompts for
+your Alpaca paper keys, and runs a connection check. After that, use
+`trader.bat`:
+
+```bat
+trader.bat status
+trader.bat backtest
+trader.bat run --once --dry-run
+```
+
+**macOS / Linux** — the same thing:
+
+```bash
+./setup.sh
+./trader.sh status
+```
+
+Setup needs **Python 3.11 or newer** (the config loader uses `tomllib`). On
+Windows, install it from [python.org](https://www.python.org/downloads/windows/)
+and tick *"Add python.exe to PATH"*.
+
+Your credentials and config are written to `%USERPROFILE%\.autotrader\`
+(Windows) or `~/.autotrader/` (macOS/Linux), not into the project folder, so
+the CLI works from any directory:
+
+```
+~/.autotrader/.env            APCA_API_KEY_ID and APCA_API_SECRET_KEY
+~/.autotrader/config.toml     strategy and guardrail settings
+~/.autotrader/autotrader.db   signal and order history
+~/.autotrader/autotrader.log  rotating log
+```
+
+To change credentials later, delete `.env` and re-run setup. A `.env` in the
+project folder still wins over the one in your home directory, which is handy
+for testing a second account.
+
+### A standalone .exe
+
+`setup.bat` already produces `.venv\Scripts\trader.exe`, but that one needs
+the virtual environment beside it. For a single file you can copy anywhere,
+with no Python installed at all:
+
+```bat
+scripts\build-exe.bat        REM produces dist\trader.exe (~45 MB)
+```
+
+macOS/Linux: `./scripts/build-exe.sh`. The binary reads the same
+`~/.autotrader/` files, so it works from any folder. Build it on the machine
+you intend to run it on — PyInstaller does not cross-compile, so a Linux build
+will not produce a Windows executable.
+
+## Manual install
+
+If you would rather not use the scripts:
 
 ```bash
 cd autotrader
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 
 cp .env.example .env          # add your Alpaca *paper* keys
@@ -30,7 +86,13 @@ trader run --once             # send them
 ```
 
 Paper API keys come from the [Alpaca paper dashboard](https://app.alpaca.markets/paper/dashboard/overview)
-under **API Keys**. `.env` and `config.toml` are both gitignored.
+under **API Keys**. The key ID starts with `PK`; the secret is shown only once,
+when you create the pair. `.env` and `config.toml` are both gitignored.
+
+You do **not** need to set `base_url` — `paper = true` already selects the paper
+endpoint. If you do set it, either `https://paper-api.alpaca.markets` or the
+`.../v2` form the dashboard displays will work; the version suffix is stripped,
+because the SDK appends its own and would otherwise request `/v2/v2/...`.
 
 ## The default strategy
 
@@ -76,6 +138,9 @@ continuous rebalancing.
 | `trader history` / `--orders` | recorded signals or orders from the local database |
 | `trader list` | registered brokers and strategies |
 
+On Windows every command above is `trader.bat <command>`; on macOS/Linux,
+`./trader.sh <command>` (or plain `trader` inside an activated venv).
+
 Global flags: `--config PATH`, `--log-level DEBUG`.
 
 `run --once` exits non-zero if any order was rejected, so cron and CI can tell
@@ -83,8 +148,9 @@ that something went wrong.
 
 ## Configuration
 
-`config.toml` (searched in `./config.toml`, then `~/.autotrader/config.toml`).
-Credentials never live here — they come from the environment or `.env`.
+`config.toml` (searched in `./config.toml`, then `~/.autotrader/config.toml`;
+the setup scripts write the second one). Credentials never live here — they come
+from the environment or a `.env`, searched in the same order.
 
 ```toml
 [broker]
@@ -183,6 +249,10 @@ the last bar is meaningful:
 45 15 * * 1-5 cd /path/to/autotrader && .venv/bin/trader run --once >> cron.log 2>&1
 ```
 
+On Windows, Task Scheduler does the same job: create a Basic Task, trigger it
+daily at 3:45 PM, and point the action at `trader.bat` with the argument
+`run --once` and the project folder as "Start in".
+
 The market-hours guardrail makes a misfire harmless — outside regular hours it
 records the signal and places nothing. For intraday timeframes use
 `trader run --loop -i 15m` under systemd or launchd instead.
@@ -261,7 +331,8 @@ Rough order of usefulness:
 .venv/bin/python -m pytest -q
 ```
 
-103 tests, no network required — the suite runs against an in-memory fake broker
+128 tests, no network required — the suite runs against an in-memory fake broker
 and synthetic price series constructed to hit exact z-scores. The backtest is
 covered by a scripted strategy that isolates replay and portfolio accounting
-from the signal math.
+from the signal math, and the Alpaca adapter's own logic is tested with the SDK
+client stubbed out.

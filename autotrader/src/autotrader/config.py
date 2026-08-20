@@ -18,6 +18,14 @@ DEFAULT_CONFIG_PATHS = (
     Path("~/.autotrader/config.toml"),
 )
 
+#: Searched in order; the first file to define a key wins, so a project-local
+#: .env beats the one in the home directory. Both are checked because a
+#: launcher (or a frozen exe) can be started from any working directory.
+DEFAULT_DOTENV_PATHS = (
+    Path(".env"),
+    Path("~/.autotrader/.env"),
+)
+
 _DURATION_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([smhd])?\s*$", re.IGNORECASE)
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
@@ -37,16 +45,10 @@ def parse_duration(value: str | int | float) -> int:
     return int(float(amount) * _UNIT_SECONDS[(unit or "s").lower()])
 
 
-def load_dotenv(path: Path | None = None, *, override: bool = False) -> dict[str, str]:
-    """Minimal .env loader -- KEY=VALUE lines, '#' comments, optional quotes.
-
-    Deliberately dependency-free; we only need the subset python-dotenv's users
-    actually write.
-    """
-    env_path = Path(path) if path else Path(".env")
-    loaded: dict[str, str] = {}
+def _load_dotenv_file(env_path: Path, *, override: bool) -> dict[str, str]:
+    applied: dict[str, str] = {}
     if not env_path.is_file():
-        return loaded
+        return applied
     for raw in env_path.read_text().splitlines():
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -56,8 +58,42 @@ def load_dotenv(path: Path | None = None, *, override: bool = False) -> dict[str
         value = value.strip().strip('"').strip("'")
         if override or key not in os.environ:
             os.environ[key] = value
-        loaded[key] = value
-    return loaded
+            applied[key] = value
+    return applied
+
+
+def load_dotenv(path: Path | None = None, *, override: bool = False) -> dict[str, str]:
+    """Minimal .env loader -- KEY=VALUE lines, '#' comments, optional quotes.
+
+    With no explicit path, searches ``DEFAULT_DOTENV_PATHS`` and applies the
+    first definition of each key. Values already in the environment always win
+    unless ``override`` is set. Deliberately dependency-free; we only need the
+    subset python-dotenv's users actually write.
+    """
+    paths = (
+        [Path(path)]
+        if path is not None
+        else [candidate.expanduser() for candidate in DEFAULT_DOTENV_PATHS]
+    )
+    applied: dict[str, str] = {}
+    for env_path in paths:
+        applied.update(_load_dotenv_file(env_path, override=override))
+    return applied
+
+
+def normalize_base_url(url: str | None) -> str | None:
+    """Strip the API version suffix off a pasted endpoint.
+
+    The SDK builds requests as ``base_url + "/v2" + path``, so handing it the
+    URL Alpaca shows on the dashboard -- which ends in ``/v2`` -- produces
+    ``/v2/v2/account`` and a 404. Accept either form.
+    """
+    if not url:
+        return None
+    cleaned = url.strip().rstrip("/")
+    while re.search(r"/v\d[\w.]*$", cleaned):
+        cleaned = cleaned[: cleaned.rindex("/")].rstrip("/")
+    return cleaned or None
 
 
 @dataclass
@@ -171,7 +207,7 @@ def load_config(explicit: Path | None = None) -> Config:
         paper=broker.get("paper", cfg.broker.paper),
         data_feed=broker.get("data_feed", cfg.broker.data_feed),
         data_adjustment=broker.get("data_adjustment", cfg.broker.data_adjustment),
-        base_url=broker.get("base_url"),
+        base_url=normalize_base_url(broker.get("base_url")),
     )
 
     engine = raw.get("engine", {})

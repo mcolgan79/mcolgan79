@@ -18,3 +18,4 @@ venv/
 .ruff_cache/
 build/
 dist/
+*.spec

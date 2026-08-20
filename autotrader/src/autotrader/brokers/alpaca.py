@@ -20,6 +20,7 @@ from ..models import (
     OrderSide,
     Position,
 )
+from ..config import normalize_base_url
 from ..timeframes import (
     BARS_PER_SESSION,
     SESSIONS_PER_YEAR,
@@ -56,7 +57,7 @@ class AlpacaBroker(Broker):
         self.data_adjustment = data_adjustment.lower()
         self._api_key = api_key
         self._api_secret = api_secret
-        self._url_override = url_override
+        self._url_override = normalize_base_url(url_override)
         self._trading = None
         self._data = None
 
@@ -250,8 +251,11 @@ class AlpacaBroker(Broker):
         try:
             asset = self.trading.get_asset(symbol)
         except Exception as exc:  # noqa: BLE001
-            log.warning("shortability lookup failed for %s (%s)", symbol, exc)
-            return True
+            # Reporting a check that never ran as "passed" is worse than
+            # reporting nothing; let the caller show it as a failure.
+            raise BrokerError(
+                f"could not check whether {symbol} is shortable: {exc}"
+            ) from exc
         return bool(getattr(asset, "shortable", False))
 
     def submit_order(self, request: OrderRequest) -> OrderResult:
