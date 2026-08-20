@@ -33,9 +33,26 @@ trader.bat run --once --dry-run
 ./trader.sh status
 ```
 
-Setup needs **Python 3.11 or newer** (the config loader uses `tomllib`). On
-Windows, install it from [python.org](https://www.python.org/downloads/windows/)
-and tick *"Add python.exe to PATH"*.
+Setup needs **Python 3.11 or newer** — the config loader uses `tomllib`, which
+landed in 3.11.
+
+- **macOS** ships Python 3.9, which is too old. `brew install python@3.12`, or
+  use the installer from [python.org](https://www.python.org/downloads/macos/).
+- **Windows**: install from
+  [python.org](https://www.python.org/downloads/windows/) and tick
+  *"Add python.exe to PATH"*.
+
+Setup searches the usual locations (including Homebrew and python.org install
+paths) and, if it finds nothing suitable, lists every interpreter it did find
+with its version. To point it at a specific one:
+
+```bash
+PYTHON=/opt/homebrew/bin/python3.12 ./setup.sh    # macOS / Linux
+```
+```bat
+set PYTHON=C:\Path\to\python.exe
+setup.bat
+```
 
 Your credentials and config are written to `%USERPROFILE%\.autotrader\`
 (Windows) or `~/.autotrader/` (macOS/Linux), not into the project folder, so

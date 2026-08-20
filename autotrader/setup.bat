@@ -14,8 +14,13 @@ echo ==========================================
 echo.
 
 REM --- locate a Python 3.11+ interpreter ------------------------------------
+REM  Point at a specific interpreter with:  set PYTHON=C:\Path\to\python.exe
 set "PYCMD="
-py -3 --version >nul 2>&1 && set "PYCMD=py -3"
+if defined PYTHON set "PYCMD=%PYTHON%"
+if not defined PYCMD py -3.13 --version >nul 2>&1 && set "PYCMD=py -3.13"
+if not defined PYCMD py -3.12 --version >nul 2>&1 && set "PYCMD=py -3.12"
+if not defined PYCMD py -3.11 --version >nul 2>&1 && set "PYCMD=py -3.11"
+if not defined PYCMD py -3 --version >nul 2>&1 && set "PYCMD=py -3"
 if not defined PYCMD python --version >nul 2>&1 && set "PYCMD=python"
 if not defined PYCMD goto :nopython
 
@@ -103,7 +108,15 @@ goto :fail
 
 :oldpython
 echo ERROR: Python 3.11 or newer is required (this project uses tomllib).
+echo Found:
 %PYCMD% --version
+echo.
+echo Install a newer Python from https://www.python.org/downloads/windows/
+echo and tick "Add python.exe to PATH", then re-run setup.bat.
+echo.
+echo Already have one somewhere unusual? Point at it directly:
+echo     set PYTHON=C:\Path\to\python.exe
+echo     setup.bat
 goto :fail
 
 :venvfailed
