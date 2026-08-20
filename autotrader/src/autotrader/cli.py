@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
+import statistics
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +18,7 @@ from rich.table import Table
 from rich.text import Text
 
 from . import __version__
+from .backtest import BacktestError, BacktestResult, Backtester
 from .brokers import available_brokers, build_broker
 from .brokers.base import Broker, BrokerError
 from .config import Config, ConfigError, EXAMPLE_CONFIG, load_config, parse_duration
@@ -348,6 +351,256 @@ def history(
         console.print(table)
     store.close()
 
+
+@app.command()
+def backtest(
+    ctx: typer.Context,
+    bars: int = typer.Option(750, "--bars", "-b", help="Bars to fetch (about 3 years of daily)."),
+    start: Optional[str] = typer.Option(None, "--start", help="Start date, YYYY-MM-DD. Overrides --bars."),
+    end: Optional[str] = typer.Option(None, "--end", help="End date, YYYY-MM-DD. Defaults to now."),
+    equity: float = typer.Option(100_000.0, "--equity", help="Starting equity."),
+    slippage_bps: float = typer.Option(1.0, "--slippage-bps", help="Slippage per fill, in basis points."),
+    commission: float = typer.Option(0.0, "--commission", help="Commission per share."),
+    fill: str = typer.Option(
+        "next_open", "--fill", help="Fill at the next bar's open (honest) or this bar's close (matches a pre-close cron)."
+    ),
+    benchmark: Optional[str] = typer.Option(
+        None, "--benchmark", help="Symbol to buy and hold for comparison (default: the strategy's first symbol)."
+    ),
+    param: list[str] = typer.Option(
+        [], "--param", "-p", help="Override a strategy param for this run, e.g. -p entry_z=2.5. Repeatable."
+    ),
+    show_trades: bool = typer.Option(True, "--trades/--no-trades", help="List the round trips."),
+    csv_dir: Optional[Path] = typer.Option(None, "--csv", help="Write equity.csv, trades.csv, and signals.csv here."),
+) -> None:
+    """Replay the strategy over historical bars using the live decision code."""
+    state = _state(ctx)
+    try:
+        config = state.config
+        params = dict(config.strategy.params)
+        params.update(_parse_overrides(param))
+        strategy = build_strategy(config.strategy.name, params)
+        broker = build_broker(config)
+    except (ConfigError, BrokerError, StrategyError) as exc:
+        _fail(str(exc))
+
+    if fill not in ("next_open", "close"):
+        _fail("--fill must be 'next_open' or 'close'")
+
+    start_dt = _parse_date(start)
+    end_dt = _parse_date(end)
+    limit = bars if start_dt is None else 100_000
+
+    with console.status("fetching history…"):
+        try:
+            history = broker.get_bars(
+                strategy.symbols(), strategy.timeframe, limit, start_dt, end_dt
+            )
+        except BrokerError as exc:
+            _fail(str(exc))
+
+    try:
+        result = Backtester(
+            strategy,
+            history,
+            starting_equity=equity,
+            slippage_bps=slippage_bps,
+            commission_per_share=commission,
+            fill=fill,
+            allow_fractional=config.engine.guardrails.allow_fractional,
+            benchmark=benchmark or strategy.symbols()[0],
+        ).run()
+    except (BacktestError, StrategyError) as exc:
+        _fail(str(exc))
+
+    _render_backtest(result, strategy, fill, slippage_bps, show_trades)
+    if csv_dir:
+        _write_backtest_csv(result, csv_dir)
+        console.print(f"[green]wrote[/] {csv_dir}/equity.csv, trades.csv, signals.csv")
+
+
+def _parse_overrides(pairs: list[str]) -> dict:
+    """'entry_z=2.5' -> {'entry_z': 2.5}, keeping strings as strings."""
+    out: dict[str, object] = {}
+    for item in pairs:
+        if "=" not in item:
+            _fail(f"--param needs KEY=VALUE, got {item!r}")
+        key, _, raw = item.partition("=")
+        value: object = raw
+        try:
+            value = int(raw)
+        except ValueError:
+            try:
+                value = float(raw)
+            except ValueError:
+                pass
+        out[key.strip()] = value
+    return out
+
+
+def _parse_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        _fail(f"dates must look like YYYY-MM-DD, got {value!r}")
+
+
+SPARK_BLOCKS = "▁▂▃▄▅▆▇█"
+
+
+def sparkline(values: list[float], width: int = 64) -> str:
+    """A one-line equity curve. Buckets down to `width` columns by average."""
+    if len(values) < 2:
+        return ""
+    if len(values) > width:
+        size = len(values) / width
+        values = [
+            statistics.fmean(values[int(i * size) : max(int((i + 1) * size), int(i * size) + 1)])
+            for i in range(width)
+        ]
+    low, high = min(values), max(values)
+    if high == low:
+        return SPARK_BLOCKS[0] * len(values)
+    span = high - low
+    return "".join(
+        SPARK_BLOCKS[min(int((v - low) / span * len(SPARK_BLOCKS)), len(SPARK_BLOCKS) - 1)]
+        for v in values
+    )
+
+
+def _pct(value: float) -> str:
+    return f"{value * 100:+.2f}%"
+
+
+def _render_backtest(
+    result: BacktestResult, strategy: Strategy, fill: str, slippage_bps: float, show_trades: bool
+) -> None:
+    stats = result.stats()
+    period = f"{result.start:%Y-%m-%d} → {result.end:%Y-%m-%d}" if result.start else "—"
+    console.print(
+        Panel(
+            f"{strategy.describe()}\n"
+            f"{period}  ·  {int(stats['bars'])} bars evaluated  ·  "
+            f"{result.warmup_bars} warmup  ·  fill at {fill}, {slippage_bps:g}bp slippage",
+            title="backtest",
+        )
+    )
+
+    curve = [value for _, value in result.equity_curve]
+    spark = sparkline(curve)
+    if spark:
+        colour = "green" if curve[-1] >= curve[0] else "red"
+        console.print(f"[{colour}]{spark}[/]  ${curve[0]:,.0f} → ${curve[-1]:,.0f}")
+
+    left = Table.grid(padding=(0, 2))
+    left.add_column(style="dim")
+    left.add_column(justify="right")
+    right = Table.grid(padding=(0, 2))
+    right.add_column(style="dim")
+    right.add_column(justify="right")
+
+    total_style = "green" if stats["total_return"] >= 0 else "red"
+    left.add_row("total return", f"[{total_style}]{_pct(stats['total_return'])}[/]")
+    # Annualizing a few weeks of data produces a confident-looking lie.
+    left.add_row("CAGR", _pct(stats["cagr"]) if stats["years"] >= 0.5 else "—")
+    left.add_row("volatility (ann.)", f"{stats['volatility'] * 100:.2f}%")
+    left.add_row("Sharpe (ann.)", f"{stats['sharpe']:.2f}")
+    left.add_row("max drawdown", f"[red]{_pct(stats['max_drawdown'])}[/]")
+    left.add_row("final equity", f"${stats['final_equity']:,.2f}")
+
+    right.add_row("round trips", f"{int(stats['trades'])}")
+    right.add_row("win rate", f"{stats['win_rate'] * 100:.1f}%")
+    right.add_row("avg win / loss", f"${stats['avg_win']:,.0f} / ${stats['avg_loss']:,.0f}")
+    profit_factor = stats["profit_factor"]
+    right.add_row("profit factor", "∞" if profit_factor == float("inf") else f"{profit_factor:.2f}")
+    right.add_row("avg bars held", f"{stats['avg_bars_held']:.1f}")
+    right.add_row("stopped out", f"{int(stats['stops'])}")
+    right.add_row("time in market", f"{stats['exposure'] * 100:.1f}%")
+
+    summary = Table.grid(padding=(0, 6))
+    summary.add_column()
+    summary.add_column()
+    summary.add_row(left, right)
+    console.print(summary)
+
+    if "benchmark_return" in stats:
+        console.print(
+            f"[dim]buy & hold {result.benchmark_symbol}: {_pct(stats['benchmark_return'])} "
+            f"with a {_pct(stats['benchmark_max_drawdown'])} drawdown[/]"
+        )
+    if stats["commission_paid"]:
+        console.print(f"[dim]commission paid: ${stats['commission_paid']:,.2f}[/]")
+
+    if int(stats["trades"]) == 0:
+        console.print(
+            "[yellow]no round trips[/] — the entry threshold was never crossed, or the "
+            "window was too short. Try a longer period or a lower entry_z."
+        )
+        return
+
+    if show_trades:
+        table = Table(title="round trips", header_style="bold")
+        for column in ("entry", "exit", "side", "z in", "z out", "why", "bars", "P&L", "return"):
+            table.add_column(column, justify="right" if column not in ("side", "why") else "left")
+        for trade in result.trades:
+            style = "green" if trade.won else "red"
+            table.add_row(
+                f"{trade.entry_at:%Y-%m-%d}",
+                f"{trade.exit_at:%Y-%m-%d}",
+                trade.side.replace("_spread", ""),
+                f"{trade.entry_z:+.2f}" if trade.entry_z is not None else "—",
+                f"{trade.exit_z:+.2f}" if trade.exit_z is not None else "—",
+                trade.exit_action,
+                str(trade.bars_held),
+                f"[{style}]${trade.pnl:,.0f}[/]",
+                f"[{style}]{_pct(trade.return_pct)}[/]",
+            )
+        console.print(table)
+
+
+def _write_backtest_csv(result: BacktestResult, directory: Path) -> None:
+    directory = directory.expanduser()
+    directory.mkdir(parents=True, exist_ok=True)
+
+    with (directory / "equity.csv").open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["timestamp", "equity"])
+        writer.writerows([[ts.isoformat(), f"{value:.2f}"] for ts, value in result.equity_curve])
+
+    with (directory / "trades.csv").open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            ["entry_at", "exit_at", "side", "entry_z", "exit_z", "exit_action", "bars_held", "pnl", "return"]
+        )
+        for t in result.trades:
+            writer.writerow(
+                [
+                    t.entry_at.isoformat(),
+                    t.exit_at.isoformat(),
+                    t.side,
+                    "" if t.entry_z is None else f"{t.entry_z:.4f}",
+                    "" if t.exit_z is None else f"{t.exit_z:.4f}",
+                    t.exit_action,
+                    t.bars_held,
+                    f"{t.pnl:.2f}",
+                    f"{t.return_pct:.6f}",
+                ]
+            )
+
+    with (directory / "signals.csv").open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["timestamp", "action", "z", "reason"])
+        for ts, decision in result.decisions:
+            writer.writerow(
+                [
+                    ts.isoformat(),
+                    decision.action.value,
+                    f"{decision.metrics.get('z', float('nan')):.4f}",
+                    decision.reason,
+                ]
+            )
 
 # -- rendering helpers --------------------------------------------------
 

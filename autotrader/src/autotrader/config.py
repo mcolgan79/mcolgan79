@@ -65,6 +65,9 @@ class BrokerConfig:
     name: str = "alpaca"
     paper: bool = True
     data_feed: str = "iex"  # free Alpaca plans get IEX; "sip" needs a subscription
+    # Alpaca returns unadjusted bars by default, and an unadjusted split puts a
+    # step change into the price ratio that looks exactly like a dislocation.
+    data_adjustment: str = "split"  # raw | split | dividend | all
     base_url: str | None = None
 
 
@@ -167,6 +170,7 @@ def load_config(explicit: Path | None = None) -> Config:
         name=broker.get("name", cfg.broker.name),
         paper=broker.get("paper", cfg.broker.paper),
         data_feed=broker.get("data_feed", cfg.broker.data_feed),
+        data_adjustment=broker.get("data_adjustment", cfg.broker.data_adjustment),
         base_url=broker.get("base_url"),
     )
 
@@ -211,6 +215,9 @@ EXAMPLE_CONFIG = """\
 name = "alpaca"       # alpaca | robinhood (planned) | tastytrade (planned)
 paper = true          # keep this true until you have proven the strategy
 data_feed = "iex"     # "iex" on free Alpaca plans, "sip" if you subscribe
+# An unadjusted split puts a step change into the price ratio that looks exactly
+# like a dislocation. Never use "raw" here. (raw | split | dividend | all)
+data_adjustment = "split"
 
 [engine]
 execute = true        # submit orders by default; `trader run --dry-run` overrides

@@ -157,3 +157,120 @@ def test_planned_broker_explains_itself(tmp_path):
     result = runner.invoke(cli.app, ["--config", str(config), "status"])
     assert result.exit_code == 1
     assert "not implemented yet" in result.stdout
+
+
+# -- backtest -----------------------------------------------------------
+
+
+@pytest.fixture
+def backtest_project(tmp_path, monkeypatch):
+    """A config plus a fake broker holding a long, tradeable price history."""
+    from conftest import FakeBroker
+    from test_backtest import mean_reverting_pair
+
+    config = tmp_path / "config.toml"
+    config.write_text(
+        f"""
+[broker]
+name = "fake"
+
+[storage]
+path = "{tmp_path / 'test.db'}"
+
+[logging]
+level = "WARNING"
+file = ""
+
+[strategy]
+name = "pair_zscore"
+
+[strategy.params]
+lookback = {LOOKBACK}
+entry_z = 2.0
+exit_z = 0.5
+stop_z = 3.5
+leg_weight = 0.25
+"""
+    )
+    broker = FakeBroker(bars=mean_reverting_pair())
+    monkeypatch.setattr(cli, "build_broker", lambda _cfg: broker)
+    return config, broker
+
+
+def test_backtest_reports_the_round_trip(backtest_project):
+    config, _ = backtest_project
+    result = invoke(config, "backtest", "--slippage-bps", "0")
+    assert result.exit_code == 0
+    assert "total return" in result.stdout
+    assert "round trips" in result.stdout
+    assert "short" in result.stdout
+
+
+def test_backtest_never_submits_an_order(backtest_project):
+    config, broker = backtest_project
+    invoke(config, "backtest")
+    assert broker.submitted == []
+
+
+def test_backtest_param_override_changes_the_result(backtest_project):
+    config, _ = backtest_project
+    tradeable = invoke(config, "backtest", "--slippage-bps", "0")
+    assert "no round trips" not in tradeable.stdout
+    # An entry threshold nothing can reach must produce no trades.
+    quiet = invoke(config, "backtest", "-p", "entry_z=9.0", "-p", "stop_z=99.0")
+    assert quiet.exit_code == 0
+    assert "no round trips" in quiet.stdout
+
+
+def test_backtest_writes_csv_exports(backtest_project, tmp_path):
+    config, _ = backtest_project
+    out = tmp_path / "export"
+    result = invoke(config, "backtest", "--csv", str(out), "--no-trades")
+    assert result.exit_code == 0
+    equity = (out / "equity.csv").read_text().splitlines()
+    trades = (out / "trades.csv").read_text().splitlines()
+    signals = (out / "signals.csv").read_text().splitlines()
+    assert equity[0] == "timestamp,equity" and len(equity) > 2
+    assert trades[0].startswith("entry_at,exit_at,side")
+    assert len(trades) == 2  # header plus the one round trip
+    assert signals[0] == "timestamp,action,z,reason" and len(signals) > 2
+
+
+def test_backtest_rejects_a_bad_fill_mode(backtest_project):
+    config, _ = backtest_project
+    result = invoke(config, "backtest", "--fill", "magic")
+    assert result.exit_code == 1
+    assert "next_open" in result.stdout
+
+
+def test_backtest_rejects_a_malformed_param(backtest_project):
+    config, _ = backtest_project
+    result = invoke(config, "backtest", "-p", "entry_z")
+    assert result.exit_code == 1
+    assert "KEY=VALUE" in result.stdout
+
+
+def test_backtest_rejects_a_bad_date(backtest_project):
+    config, _ = backtest_project
+    result = invoke(config, "backtest", "--start", "last tuesday")
+    assert result.exit_code == 1
+    assert "YYYY-MM-DD" in result.stdout
+
+
+def test_backtest_explains_when_history_is_too_short(tmp_path, monkeypatch):
+    from conftest import FakeBroker, bars_from_prices, prices_from_spreads
+
+    config = tmp_path / "config.toml"
+    config.write_text(
+        f'[broker]\nname="fake"\n[storage]\npath="{tmp_path}/t.db"\n'
+        '[logging]\nlevel="WARNING"\nfile=""\n'
+        "[strategy]\nname=\"pair_zscore\"\n[strategy.params]\nlookback=60\n"
+    )
+    closes_a, closes_b = prices_from_spreads([0.01, -0.01] * 5)
+    broker = FakeBroker(
+        bars={"GLD": bars_from_prices(closes_a), "GDX": bars_from_prices(closes_b)}
+    )
+    monkeypatch.setattr(cli, "build_broker", lambda _cfg: broker)
+    result = runner.invoke(cli.app, ["--config", str(config), "backtest"])
+    assert result.exit_code == 1
+    assert "never had enough history" in result.stdout

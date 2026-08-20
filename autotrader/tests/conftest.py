@@ -124,8 +124,16 @@ class FakeBroker(Broker):
     def get_positions(self) -> dict[str, Position]:
         return dict(self._positions)
 
-    def get_bars(self, symbols, timeframe, limit):
-        return {s: self._bars.get(s, [])[-limit:] for s in symbols}
+    def get_bars(self, symbols, timeframe, limit, start=None, end=None):
+        out = {}
+        for symbol in symbols:
+            series = self._bars.get(symbol, [])
+            if start is not None:
+                series = [b for b in series if b.timestamp >= start]
+            if end is not None:
+                series = [b for b in series if b.timestamp <= end]
+            out[symbol] = series[-limit:]
+        return out
 
     def get_market_status(self) -> MarketStatus:
         return MarketStatus(

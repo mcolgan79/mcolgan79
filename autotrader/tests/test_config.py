@@ -34,6 +34,7 @@ def test_example_config_is_loadable_and_matches_the_documented_defaults(tmp_path
     path.write_text(EXAMPLE_CONFIG)
     cfg = load_config(path)
     assert cfg.broker.name == "alpaca" and cfg.broker.paper is True
+    assert cfg.broker.data_adjustment == "split"  # never "raw" for a price ratio
     assert cfg.engine.execute is True
     assert cfg.engine.poll_interval == 900
     assert cfg.engine.guardrails.require_market_open is True

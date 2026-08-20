@@ -6,6 +6,7 @@ strategies sit behind interfaces, so adding Robinhood, Tastytrade, or a second
 strategy is a new file rather than a rewrite.
 
 ```
+trader backtest        # how would this have done?
 trader signal          # what does the strategy think right now?
 trader run --once      # evaluate and place the resulting orders
 trader run --loop      # keep evaluating on an interval
@@ -22,6 +23,7 @@ pip install -e ".[dev]"
 cp .env.example .env          # add your Alpaca *paper* keys
 trader init                   # writes config.toml
 trader doctor                 # verifies keys, clock, data, shortability
+trader backtest               # replay it over history first
 trader signal                 # look before you trade
 trader run --once --dry-run   # see the orders it would send
 trader run --once             # send them
@@ -63,6 +65,7 @@ continuous rebalancing.
 |---|---|
 | `trader init` | write a starter `config.toml` |
 | `trader doctor` | check credentials, market clock, bar availability, shortability |
+| `trader backtest` | replay the strategy over historical bars |
 | `trader status` | account, clock, positions, and the current signal |
 | `trader signal` | evaluate and print the signal; never trades |
 | `trader run --once` | evaluate once and place orders (cron-friendly) |
@@ -88,6 +91,7 @@ Credentials never live here — they come from the environment or `.env`.
 name = "alpaca"       # alpaca | robinhood (planned) | tastytrade (planned)
 paper = true
 data_feed = "iex"     # "iex" on free plans, "sip" if you subscribe
+data_adjustment = "split"    # never "raw": an unadjusted split fakes a dislocation
 
 [engine]
 execute = true        # submit by default; `--dry-run` overrides per invocation
@@ -117,6 +121,58 @@ State lives in SQLite at `~/.autotrader/autotrader.db`: one row per evaluation,
 with the signal, its metrics, the orders, and a position snapshot. Logs rotate
 at `~/.autotrader/autotrader.log`.
 
+## Backtesting
+
+```bash
+trader backtest                                  # ~3 years of daily bars
+trader backtest --start 2020-01-01 --end 2024-12-31
+trader backtest -p entry_z=2.5 -p lookback=90    # try other parameters
+trader backtest --csv ./out                      # equity.csv, trades.csv, signals.csv
+```
+
+The backtest runs the **same** `Strategy.evaluate` and the same `plan_orders`
+the live engine uses. It is a replay harness, not a second implementation of
+the strategy — if the two ever disagreed, the backtest would be worthless.
+
+```
+╭───────────────────────────── backtest ─────────────────────────────╮
+│ pair_zscore: GLD/GDX on 1Day, lookback=60, entry=±2.0, exit=±0.5   │
+│ 2023-01-03 → 2026-08-19 · 892 bars evaluated · 59 warmup           │
+╰────────────────────────────────────────────────────────────────────╯
+▁▁▂▂▃▃▄▄▄▅▅▆▆▆▇▇█  $100,000 → $107,412
+total return    +7.41%      round trips        14
+CAGR            +2.05%      win rate        64.3%
+Sharpe (ann.)     0.71      profit factor    1.83
+max drawdown    -3.12%      time in market  31.4%
+```
+
+*(illustrative output — run it against your own data)*
+
+What it models, and what it does not:
+
+- **No lookahead.** At bar *i* the strategy sees bars `[0..i]` and nothing more.
+  A test asserts this directly, because everything else is meaningless if it
+  leaks.
+- **Fills.** `--fill next_open` (default) executes at the *next* bar's open,
+  which is the honest assumption for a signal computed on a close.
+  `--fill close` executes at the signal bar's close instead — closer to what a
+  15:45 cron actually gets, and slightly optimistic.
+- **Costs.** `--slippage-bps` (default 1bp, applied against you on both sides)
+  and `--commission` per share (default 0, matching Alpaca).
+- **Warmup.** The first `lookback` bars fill the rolling window and are excluded
+  from the results; `--bars 750` gives roughly three years of daily data, of
+  which 60 are consumed.
+- **Not modeled:** short borrow fees, dividends on the short leg, margin
+  interest, buying-power limits, partial fills, and the possibility that a
+  short was not available at all. All of these make real results worse than the
+  backtest, and shorting GDX is exactly where they bite.
+- The benchmark line is buy-and-hold of the first leg, for context only — a
+  market-neutral pair is not really comparable to a directional hold.
+
+The usual caveat applies with force here: a backtest of a strategy whose
+parameters you tuned on the same data tells you very little. Change one
+threshold, re-run, and you have already started overfitting.
+
 ## Scheduling
 
 Daily bars only need one evaluation a day. Run it shortly before the close so
@@ -144,8 +200,9 @@ Worth knowing before you trust it with anything:
 - **Paper shorting is simulated.** Alpaca's paper environment does not model
   borrow availability or hard-to-borrow fees. `trader doctor` checks the
   shortable flag, but live behavior can still differ.
-- **No backtest yet.** The parameters here are conventional defaults, not
-  fitted ones. Nothing in this repo has been validated against history.
+- **The defaults are not fitted.** ±2.0 / 0.5 / 3.5 on a 60-bar window are
+  conventional starting points. Run `trader backtest` before trusting them, and
+  read the caveats in that section before trusting the backtest.
 - **Leg fill risk.** The two legs are separate market orders. The engine
   sequences closes before opens and aborts the remaining orders if one is
   rejected, but a fill can still land at a worse price than the signal assumed.
@@ -188,13 +245,15 @@ each one needs; the short version:
 
 Rough order of usefulness:
 
-1. `trader backtest` — replay historical bars through the same `Strategy` code.
+1. Parameter sweeps — `--sweep entry_z=1.5,2,2.5` over a grid, with a
+   walk-forward split so the tuning is not scored on its own training data.
 2. Beta- or vol-weighted leg sizing.
 3. Limit orders with a marketable offset, instead of market orders.
-4. Multiple concurrent strategies with a portfolio-level risk budget.
-5. Daily loss kill-switch.
-6. Tastytrade adapter, then Robinhood.
-7. Webhook/email alerts on entry, exit, and stop-out.
+4. Borrow-cost modeling in the backtest.
+5. Multiple concurrent strategies with a portfolio-level risk budget.
+6. Daily loss kill-switch.
+7. Tastytrade adapter, then Robinhood.
+8. Webhook/email alerts on entry, exit, and stop-out.
 
 ## Tests
 
@@ -202,5 +261,7 @@ Rough order of usefulness:
 .venv/bin/python -m pytest -q
 ```
 
-71 tests, no network required — the suite runs against an in-memory fake broker
-and synthetic price series constructed to hit exact z-scores.
+103 tests, no network required — the suite runs against an in-memory fake broker
+and synthetic price series constructed to hit exact z-scores. The backtest is
+covered by a scripted strategy that isolates replay and portfolio accounting
+from the signal math.

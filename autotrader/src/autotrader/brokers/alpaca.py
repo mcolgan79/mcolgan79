@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from datetime import datetime, timedelta, timezone
 
 from ..models import (
@@ -21,14 +20,15 @@ from ..models import (
     OrderSide,
     Position,
 )
+from ..timeframes import (
+    BARS_PER_SESSION,
+    SESSIONS_PER_YEAR,
+    TimeframeError,
+    parse_timeframe_parts,
+)
 from .base import Broker, BrokerError
 
 log = logging.getLogger(__name__)
-
-_TIMEFRAME_RE = re.compile(r"^\s*(\d+)?\s*(min|minute|hour|day|week|month)s?\s*$", re.I)
-
-# Approximate regular-hours bars per session, used to size the history request.
-_BARS_PER_SESSION = {"minute": 390.0, "hour": 6.5, "day": 1.0, "week": 0.2, "month": 1 / 21}
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -48,10 +48,12 @@ class AlpacaBroker(Broker):
         *,
         paper: bool = True,
         data_feed: str = "iex",
+        data_adjustment: str = "split",
         url_override: str | None = None,
     ) -> None:
         self.paper = paper
         self.data_feed = data_feed.lower()
+        self.data_adjustment = data_adjustment.lower()
         self._api_key = api_key
         self._api_secret = api_secret
         self._url_override = url_override
@@ -122,18 +124,14 @@ class AlpacaBroker(Broker):
 
     @staticmethod
     def parse_timeframe(timeframe: str):
-        """'15Min' -> TimeFrame(15, Minute). Also returns (amount, unit_name)."""
+        """'15Min' -> (TimeFrame(15, Minute), 15, 'minute')."""
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
-        match = _TIMEFRAME_RE.match(timeframe)
-        if not match:
-            raise BrokerError(
-                f"unsupported timeframe {timeframe!r}; try '1Day', '1Hour', '15Min'"
-            )
-        amount = int(match.group(1) or 1)
-        unit_name = match.group(2).lower()
+        try:
+            amount, unit_name = parse_timeframe_parts(timeframe)
+        except TimeframeError as exc:
+            raise BrokerError(str(exc)) from exc
         unit = {
-            "min": TimeFrameUnit.Minute,
             "minute": TimeFrameUnit.Minute,
             "hour": TimeFrameUnit.Hour,
             "day": TimeFrameUnit.Day,
@@ -149,24 +147,30 @@ class AlpacaBroker(Broker):
         Sessions are ~6.5h and there are ~252 trading days a year, so the wall
         clock always has to be stretched well past the raw bar count.
         """
-        unit_key = "minute" if unit_name in ("min", "minute") else unit_name
-        per_session = _BARS_PER_SESSION[unit_key] / max(amount, 1)
+        per_session = BARS_PER_SESSION[unit_name] / max(amount, 1)
         sessions_needed = limit / max(per_session, 1e-9)
-        calendar_days = sessions_needed * (365 / 252)
+        calendar_days = sessions_needed * (365 / SESSIONS_PER_YEAR)
         return timedelta(days=math.ceil(calendar_days * 1.3) + 10)
 
     def get_bars(
-        self, symbols: list[str], timeframe: str, limit: int
+        self,
+        symbols: list[str],
+        timeframe: str,
+        limit: int,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> dict[str, list[Bar]]:
-        from alpaca.data.enums import DataFeed
+        from alpaca.data.enums import Adjustment, DataFeed
         from alpaca.data.requests import StockBarsRequest
 
         tf, amount, unit_name = self.parse_timeframe(timeframe)
-        end = datetime.now(timezone.utc)
-        # The free plan cannot read the most recent 15 minutes of SIP data.
-        if self.data_feed == "sip":
-            end -= timedelta(minutes=16)
-        start = end - self.history_window(amount, unit_name, limit)
+        if end is None:
+            end = datetime.now(timezone.utc)
+            # The free plan cannot read the most recent 15 minutes of SIP data.
+            if self.data_feed == "sip":
+                end -= timedelta(minutes=16)
+        if start is None:
+            start = end - self.history_window(amount, unit_name, limit)
 
         request = StockBarsRequest(
             symbol_or_symbols=list(symbols),
@@ -174,6 +178,7 @@ class AlpacaBroker(Broker):
             start=start,
             end=end,
             feed=DataFeed(self.data_feed),
+            adjustment=Adjustment(self.data_adjustment),
         )
         try:
             barset = self.data.get_stock_bars(request)

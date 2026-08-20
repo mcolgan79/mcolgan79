@@ -40,9 +40,19 @@ class Broker(ABC):
 
     @abstractmethod
     def get_bars(
-        self, symbols: list[str], timeframe: str, limit: int
+        self,
+        symbols: list[str],
+        timeframe: str,
+        limit: int,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> dict[str, list[Bar]]:
-        """The most recent ``limit`` bars per symbol, oldest first."""
+        """Bars per symbol, oldest first.
+
+        With no ``start``/``end`` this returns the most recent ``limit`` bars,
+        which is what live trading wants. A backtest passes an explicit range
+        and gets everything in it, with ``limit`` capping the result.
+        """
 
     @abstractmethod
     def get_market_status(self) -> MarketStatus:

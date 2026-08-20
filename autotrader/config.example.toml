@@ -5,6 +5,9 @@
 name = "alpaca"       # alpaca | robinhood (planned) | tastytrade (planned)
 paper = true          # keep this true until you have proven the strategy
 data_feed = "iex"     # "iex" on free Alpaca plans, "sip" if you subscribe
+# An unadjusted split puts a step change into the price ratio that looks exactly
+# like a dislocation. Never use "raw" here. (raw | split | dividend | all)
+data_adjustment = "split"
 
 [engine]
 execute = true        # submit orders by default; `trader run --dry-run` overrides

@@ -33,6 +33,7 @@ def build_broker(config: Config) -> Broker:
             secret,
             paper=config.broker.paper,
             data_feed=config.broker.data_feed,
+            data_adjustment=config.broker.data_adjustment,
             url_override=config.broker.base_url,
         )
     try:
