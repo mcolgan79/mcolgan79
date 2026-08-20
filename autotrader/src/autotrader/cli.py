@@ -1,0 +1,472 @@
+"""`trader` -- the command line surface."""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from . import __version__
+from .brokers import available_brokers, build_broker
+from .brokers.base import Broker, BrokerError
+from .config import Config, ConfigError, EXAMPLE_CONFIG, load_config, parse_duration
+from .engine import Engine
+from .logging_setup import setup_logging
+from .models import Action, RunReport
+from .storage import Store
+from .strategies import available_strategies, build_strategy
+from .strategies.base import Strategy, StrategyError
+
+console = Console()
+log = logging.getLogger("autotrader.cli")
+
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=True,
+    help="Automated trading CLI. Defaults to GLD/GDX pair trading on an Alpaca paper account.",
+)
+
+ACTION_STYLE = {
+    Action.ENTER: "bold green",
+    Action.EXIT: "bold cyan",
+    Action.STOP: "bold red",
+    Action.MAINTAIN: "yellow",
+    Action.NONE: "dim",
+    Action.SKIP: "dim italic",
+}
+
+
+class AppState:
+    def __init__(self, config_path: Path | None, log_level: str | None) -> None:
+        self.config_path = config_path
+        self.log_level = log_level
+        self._config: Config | None = None
+
+    @property
+    def config(self) -> Config:
+        if self._config is None:
+            self._config = load_config(self.config_path)
+            setup_logging(self._config.logging, level=self.log_level)
+        return self._config
+
+
+def _state(ctx: typer.Context) -> AppState:
+    return ctx.ensure_object(AppState)
+
+
+def _fail(message: str) -> None:
+    console.print(f"[bold red]error:[/] {message}")
+    raise typer.Exit(code=1)
+
+
+def _build(ctx: typer.Context) -> tuple[Config, Broker, Strategy, Store, Engine]:
+    state = _state(ctx)
+    try:
+        config = state.config
+        broker = build_broker(config)
+        strategy = build_strategy(config.strategy.name, config.strategy.params)
+    except (ConfigError, BrokerError, StrategyError) as exc:
+        _fail(str(exc))
+    store = Store(config.storage.resolved())
+    return config, broker, strategy, store, Engine(config, broker, strategy, store)
+
+
+@app.callback()
+def main_callback(
+    ctx: typer.Context,
+    config: Optional[Path] = typer.Option(
+        None, "--config", "-c", help="Path to config.toml (default: ./config.toml, then ~/.autotrader/config.toml)."
+    ),
+    log_level: Optional[str] = typer.Option(
+        None, "--log-level", help="Override console log level (DEBUG/INFO/WARNING)."
+    ),
+) -> None:
+    ctx.obj = AppState(config_path=config, log_level=log_level)
+
+
+@app.command()
+def version() -> None:
+    """Print the version."""
+    console.print(f"autotrader {__version__}")
+
+
+@app.command()
+def init(
+    path: Path = typer.Option(Path("config.toml"), "--path", "-p", help="Where to write the config."),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file."),
+) -> None:
+    """Write a starter config.toml you can edit."""
+    target = path.expanduser()
+    if target.exists() and not force:
+        _fail(f"{target} already exists (use --force to overwrite)")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(EXAMPLE_CONFIG)
+    console.print(f"[green]wrote[/] {target}")
+    console.print(
+        "Next: copy [cyan].env.example[/] to [cyan].env[/] and add your Alpaca "
+        "paper keys, then run [cyan]trader doctor[/]."
+    )
+
+
+@app.command(name="list")
+def list_components() -> None:
+    """List the brokers and strategies this build knows about."""
+    table = Table(title="registered components", header_style="bold")
+    table.add_column("kind")
+    table.add_column("name")
+    for name in available_brokers():
+        implemented = "alpaca" == name
+        table.add_row("broker", f"{name}" if implemented else f"[dim]{name} (planned)[/]")
+    for name in available_strategies():
+        table.add_row("strategy", name)
+    console.print(table)
+
+
+@app.command()
+def doctor(ctx: typer.Context) -> None:
+    """Check config, credentials, connectivity, data, and shortability."""
+    config, broker, strategy, store, _ = _build(ctx)
+    console.print(
+        Panel(
+            f"config: {config.source_path or '[dim]built-in defaults[/]'}\n"
+            f"broker: {config.broker.name} ({'paper' if config.broker.paper else '[bold red]LIVE[/]'}), "
+            f"feed={config.broker.data_feed}\n"
+            f"strategy: {strategy.describe()}\n"
+            f"storage: {config.storage.resolved()}",
+            title="setup",
+        )
+    )
+    checks: list[tuple[str, bool, str]] = []
+    try:
+        account = broker.get_account()
+        checks.append(("credentials + account", True, f"equity ${account.equity:,.2f}"))
+    except BrokerError as exc:
+        checks.append(("credentials + account", False, str(exc)))
+        account = None
+    try:
+        status = broker.get_market_status()
+        checks.append(("market clock", True, status.detail))
+    except BrokerError as exc:
+        checks.append(("market clock", False, str(exc)))
+    try:
+        bars = broker.get_bars(strategy.symbols(), strategy.timeframe, strategy.required_bars)
+        counts = ", ".join(f"{sym}={len(series)}" for sym, series in bars.items())
+        enough = all(len(series) >= getattr(strategy, "lookback", 1) for series in bars.values())
+        checks.append((f"{strategy.timeframe} bars", enough, counts))
+    except BrokerError as exc:
+        checks.append((f"{strategy.timeframe} bars", False, str(exc)))
+    for symbol in strategy.symbols():
+        try:
+            shortable = broker.is_shortable(symbol)
+            checks.append((f"{symbol} shortable", shortable, "yes" if shortable else "NO -- the short leg will be rejected"))
+        except BrokerError as exc:
+            checks.append((f"{symbol} shortable", False, str(exc)))
+
+    table = Table(header_style="bold")
+    table.add_column("check")
+    table.add_column("ok", justify="center")
+    table.add_column("detail", overflow="fold")
+    for name, ok, detail in checks:
+        table.add_row(name, "[green]✓[/]" if ok else "[red]✗[/]", detail)
+    console.print(table)
+    store.close()
+    if not all(ok for _, ok, _ in checks):
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def status(ctx: typer.Context) -> None:
+    """Account, market clock, open positions, and the current signal."""
+    config, broker, strategy, store, engine = _build(ctx)
+    try:
+        account = broker.get_account()
+        market = broker.get_market_status()
+        positions = broker.get_positions()
+    except BrokerError as exc:
+        _fail(str(exc))
+
+    console.print(
+        Panel(
+            f"equity [bold]${account.equity:,.2f}[/]   cash ${account.cash:,.2f}   "
+            f"buying power ${account.buying_power:,.2f}\n"
+            f"market: {'[green]OPEN[/]' if market.is_open else '[yellow]CLOSED[/]'} — {market.detail}\n"
+            f"{strategy.describe()}",
+            title=f"{config.broker.name} {'paper' if config.broker.paper else 'LIVE'}",
+        )
+    )
+    _print_positions(positions, strategy.symbols())
+    _print_signal(engine, store)
+    store.close()
+
+
+@app.command()
+def positions(ctx: typer.Context) -> None:
+    """Show open positions at the broker."""
+    _, broker, strategy, store, _ = _build(ctx)
+    try:
+        _print_positions(broker.get_positions(), strategy.symbols())
+    except BrokerError as exc:
+        _fail(str(exc))
+    store.close()
+
+
+@app.command()
+def signal(ctx: typer.Context) -> None:
+    """Evaluate the strategy and show the signal without trading."""
+    _, _, _, store, engine = _build(ctx)
+    _print_signal(engine, store, record=True)
+    store.close()
+
+
+@app.command()
+def run(
+    ctx: typer.Context,
+    once: bool = typer.Option(True, "--once/--loop", help="Evaluate once and exit, or poll on an interval."),
+    dry_run: bool = typer.Option(
+        None, "--dry-run/--execute", help="Override the config's execute setting for this run."
+    ),
+    interval: Optional[str] = typer.Option(None, "--interval", "-i", help="Loop interval, e.g. '15m'. Implies --loop."),
+    ignore_market_hours: bool = typer.Option(
+        False, "--ignore-market-hours", help="Bypass the market-open guardrail (orders will queue for the next session)."
+    ),
+) -> None:
+    """Evaluate the strategy and place the resulting orders."""
+    config, broker, strategy, store, engine = _build(ctx)
+    if interval:
+        once = False
+        try:
+            config.engine.poll_interval = parse_duration(interval)
+        except ConfigError as exc:
+            _fail(str(exc))
+
+    execute = config.engine.execute if dry_run is None else not dry_run
+    if execute and not config.broker.paper:
+        console.print("[bold red]WARNING: this is a LIVE account, not paper.[/]")
+        if not typer.confirm("Submit real orders?", default=False):
+            raise typer.Exit(code=1)
+
+    def one_pass() -> RunReport:
+        report = engine.run_once(dry_run=dry_run, ignore_market_hours=ignore_market_hours)
+        _render_report(report, execute_default=config.engine.execute)
+        return report
+
+    if once:
+        report = one_pass()
+        store.close()
+        raise typer.Exit(code=1 if report.had_errors else 0)
+
+    seconds = config.engine.poll_interval
+    console.print(f"[dim]looping every {seconds}s — Ctrl-C to stop[/]")
+    try:
+        while True:
+            try:
+                one_pass()
+            except BrokerError as exc:
+                log.error("broker error: %s", exc)
+            except Exception:  # noqa: BLE001 - a loop must survive one bad pass
+                log.exception("unexpected error during evaluation")
+            time.sleep(seconds)
+    except KeyboardInterrupt:
+        console.print("\n[dim]stopped[/]")
+    finally:
+        store.close()
+
+
+@app.command()
+def close(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be closed."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+) -> None:
+    """Flatten every position this strategy trades, ignoring the signal."""
+    config, broker, strategy, store, engine = _build(ctx)
+    if not dry_run and not yes:
+        symbols = ", ".join(strategy.symbols())
+        if not typer.confirm(f"Close all {symbols} positions?", default=False):
+            raise typer.Exit(code=1)
+    report = engine.flatten(dry_run=dry_run)
+    _render_report(report, execute_default=config.engine.execute)
+    store.close()
+
+
+@app.command()
+def history(
+    ctx: typer.Context,
+    limit: int = typer.Option(15, "--limit", "-n", help="Rows to show."),
+    orders: bool = typer.Option(False, "--orders", help="Show orders instead of signals."),
+    live_only: bool = typer.Option(False, "--live-only", help="Exclude dry-run orders."),
+) -> None:
+    """Show recorded signals or orders from the local database."""
+    state = _state(ctx)
+    config = state.config
+    store = Store(config.storage.resolved())
+    if orders:
+        rows = store.recent_orders(limit=limit, include_dry_run=not live_only)
+        table = Table(title="recent orders", header_style="bold")
+        for column in ("when", "symbol", "side", "qty", "status", "filled", "mode", "note"):
+            table.add_column(column, overflow="fold")
+        for row in rows:
+            table.add_row(
+                _short_ts(row["ts"]),
+                row["symbol"],
+                row["side"],
+                f"{row['qty']:g}",
+                row["error"] and f"[red]{row['status']}[/]" or row["status"],
+                f"{row['filled_qty'] or 0:g}"
+                + (f" @ ${row['filled_avg_price']:.2f}" if row["filled_avg_price"] else ""),
+                "dry-run" if row["dry_run"] else "live",
+                row["error"] or row["intent"] or "",
+            )
+    else:
+        rows = store.recent_signals(limit=limit)
+        table = Table(title="recent signals", header_style="bold")
+        for column in ("when", "strategy", "action", "z", "reason"):
+            table.add_column(column, overflow="fold")
+        for row in rows:
+            metrics = json.loads(row["metrics"] or "{}")
+            z = metrics.get("z")
+            action = row["action"]
+            table.add_row(
+                _short_ts(row["ts"]),
+                row["strategy"],
+                f"[{ACTION_STYLE.get(Action(action), '')}]{action}[/]",
+                f"{z:+.2f}" if isinstance(z, (int, float)) else "—",
+                row["reason"] or "",
+            )
+    if not rows:
+        console.print("[dim]nothing recorded yet[/]")
+    else:
+        console.print(table)
+    store.close()
+
+
+# -- rendering helpers --------------------------------------------------
+
+
+def _short_ts(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        return datetime.fromisoformat(value).astimezone().strftime("%m-%d %H:%M")
+    except ValueError:
+        return value[:16]
+
+
+def _print_positions(positions: dict, symbols: list[str]) -> None:
+    relevant = {s: positions[s] for s in symbols if s in positions}
+    other = {s: p for s, p in positions.items() if s not in symbols}
+    if not positions:
+        console.print("[dim]no open positions[/]")
+        return
+    table = Table(title="positions", header_style="bold")
+    for column in ("symbol", "side", "qty", "avg entry", "market value"):
+        table.add_column(column, justify="right" if column != "symbol" else "left")
+    for source, dim in ((relevant, False), (other, True)):
+        for symbol, pos in source.items():
+            style = "dim" if dim else ("green" if pos.qty > 0 else "red")
+            table.add_row(
+                Text(symbol, style=style),
+                pos.side,
+                f"{pos.qty:g}",
+                f"${pos.avg_entry_price:,.2f}",
+                f"${pos.market_value:,.2f}",
+            )
+    console.print(table)
+
+
+def _print_signal(engine: Engine, store: Store, record: bool = False) -> None:
+    """Evaluate without trading and print the signal."""
+    saved_execute = engine.config.engine.execute
+    saved_store = engine.store
+    engine.config.engine.execute = False
+    if not record:
+        engine.store = None
+    try:
+        report = engine.run_once(dry_run=True)
+    except (BrokerError, StrategyError) as exc:
+        _fail(str(exc))
+    finally:
+        engine.config.engine.execute = saved_execute
+        engine.store = saved_store
+    _render_decision(report)
+    if report.orders:
+        console.print("[dim]orders this signal would produce:[/]")
+        _print_orders(report)
+
+
+def _render_decision(report: RunReport) -> None:
+    decision = report.decision
+    if decision is None:
+        console.print("[dim]no decision produced[/]")
+        return
+    style = ACTION_STYLE.get(decision.action, "")
+    lines = [f"[{style}]{decision.action.value.upper()}[/] — {decision.reason}"]
+    metrics = decision.metrics
+    if "z" in metrics:
+        lines.append(
+            f"z=[bold]{metrics['z']:+.3f}[/]  spread={metrics['spread']:+.5f}  "
+            f"mean={metrics['spread_mean']:+.5f}  sd={metrics['spread_stdev']:.5f}"
+        )
+    if "price_a" in metrics:
+        lines.append(
+            f"prices: ${metrics['price_a']:,.2f} / ${metrics['price_b']:,.2f}  "
+            f"ratio={metrics.get('ratio', 0):.4f}  bars={int(metrics.get('bars_used', 0))}"
+        )
+    if decision.targets:
+        targets = "  ".join(f"{s}={w:+.1%}" for s, w in decision.targets.items())
+        lines.append(f"targets: {targets}")
+    console.print(Panel("\n".join(lines), title=f"signal — {decision.strategy}"))
+
+
+def _print_orders(report: RunReport) -> None:
+    table = Table(header_style="bold")
+    for column in ("order", "why", "status"):
+        table.add_column(column, overflow="fold")
+    results = {id(r.request): r for r in report.results}
+    for request in report.orders:
+        result = results.get(id(request))
+        if result is None:
+            status = "[dim]not submitted[/]"
+        elif result.ok:
+            fill = ""
+            if result.filled_qty:
+                fill = f" {result.filled_qty:g}"
+                if result.filled_avg_price:
+                    fill += f" @ ${result.filled_avg_price:,.2f}"
+            status = f"[green]{result.status}[/]{fill}"
+        else:
+            status = f"[red]{result.status}: {result.error}[/]"
+        table.add_row(str(request), request.intent, status)
+    console.print(table)
+
+
+def _render_report(report: RunReport, execute_default: bool) -> None:
+    _render_decision(report)
+    if report.skipped_reason:
+        console.print(f"[yellow]no action:[/] {report.skipped_reason}")
+        return
+    if not report.orders:
+        console.print("[dim]portfolio already matches the target; nothing to do[/]")
+        return
+    mode = "[green]LIVE (paper account)[/]" if report.executed else "[yellow]DRY RUN — nothing submitted[/]"
+    console.print(f"{mode}")
+    _print_orders(report)
+    if report.had_errors:
+        console.print("[bold red]one or more orders failed; see above[/]")
+
+
+def main() -> None:
+    app()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

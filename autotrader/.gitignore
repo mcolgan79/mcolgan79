@@ -1,0 +1,20 @@
+# secrets
+.env
+config.toml
+
+# runtime state
+*.db
+*.log
+*.log.*
+.autotrader/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/

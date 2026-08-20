@@ -1,0 +1,39 @@
+# autotrader configuration.
+# Credentials do NOT belong here -- put them in .env (see .env.example).
+
+[broker]
+name = "alpaca"       # alpaca | robinhood (planned) | tastytrade (planned)
+paper = true          # keep this true until you have proven the strategy
+data_feed = "iex"     # "iex" on free Alpaca plans, "sip" if you subscribe
+
+[engine]
+execute = true        # submit orders by default; `trader run --dry-run` overrides
+poll_interval = "15m" # how often `trader run --loop` re-evaluates
+
+[engine.guardrails]
+require_market_open = true   # never trade outside regular hours
+respect_calendar = true      # honor holidays and half-days
+max_open_strategies = 1      # no pyramiding: one open pair position at a time
+allow_fractional = false     # short legs must be whole shares anyway
+
+[storage]
+path = "~/.autotrader/autotrader.db"
+
+[logging]
+level = "INFO"
+file = "~/.autotrader/autotrader.log"
+max_bytes = 5000000
+backups = 5
+
+[strategy]
+name = "pair_zscore"
+
+[strategy.params]
+symbol_a = "GLD"       # the "rich when z is high" leg
+symbol_b = "GDX"
+timeframe = "1Day"
+lookback = 60          # bars in the rolling mean/std window
+entry_z = 2.0          # |z| at or above this opens the pair
+exit_z = 0.5           # |z| at or below this flattens (mean reversion achieved)
+stop_z = 3.5           # |z| at or above this flattens (relationship broke)
+leg_weight = 0.10      # each leg targets 10% of account equity
