@@ -602,6 +602,46 @@ def _write_backtest_csv(result: BacktestResult, directory: Path) -> None:
                 ]
             )
 
+@app.command()
+def gui(
+    ctx: typer.Context,
+    port: int = typer.Option(8787, "--port", "-p", help="Port to serve the dashboard on."),
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Bind address. Leave as loopback unless you know why not."
+    ),
+    open_browser: bool = typer.Option(
+        True, "--open/--no-open", help="Open the dashboard in your browser automatically."
+    ),
+) -> None:
+    """Serve the local dashboard in your browser."""
+    try:
+        from .web import TradingService, serve
+    except ImportError:  # pragma: no cover - only when the extra is missing
+        _fail(
+            "the dashboard needs fastapi and uvicorn: "
+            'pip install -e ".[gui]" (or re-run setup.sh / setup.bat)'
+        )
+
+    config, broker, strategy, store, _ = _build(ctx)
+    if host != "127.0.0.1":
+        console.print(
+            f"[bold red]WARNING:[/] binding to {host} exposes a trading dashboard "
+            "beyond this machine."
+        )
+        if not typer.confirm("Continue?", default=False):
+            raise typer.Exit(code=1)
+    if not config.broker.paper:
+        console.print("[bold red]WARNING: this dashboard is wired to a LIVE account.[/]")
+        if not typer.confirm("Continue?", default=False):
+            raise typer.Exit(code=1)
+
+    service = TradingService(config, broker, strategy, store)
+    try:
+        serve(service, host=host, port=port, open_browser=open_browser)
+    except OSError as exc:
+        _fail(f"could not start the server on {host}:{port} ({exc}). Try --port 8788.")
+
+
 # -- rendering helpers --------------------------------------------------
 
 

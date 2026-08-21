@@ -79,10 +79,16 @@ def _iso(value: datetime | None) -> str:
 
 
 class Store:
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, *, multithreaded: bool = False) -> None:
+        """``multithreaded`` lets other threads use this connection.
+
+        SQLite itself is fine with that; the caller must serialize access. The
+        web server does exactly that -- every touch goes through one lock -- so
+        the background trading loop and the HTTP handlers can share a Store.
+        """
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path)
+        self.conn = sqlite3.connect(self.path, check_same_thread=not multithreaded)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         self.conn.commit()

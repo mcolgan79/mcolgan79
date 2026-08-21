@@ -18,6 +18,7 @@ echo "Building dist/trader (this takes a minute) ..."
     --name trader \
     --collect-all alpaca \
     --collect-submodules autotrader \
+    --add-data "src/autotrader/web/static:autotrader/web/static" \
     scripts/trader_entry.py
 
 echo

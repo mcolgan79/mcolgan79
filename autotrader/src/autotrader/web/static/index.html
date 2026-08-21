@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>autotrader</title>
+<link rel="icon" href="data:,">  <!-- no favicon request -->
+<style>
+/* Palette: reference data-viz instance.
+   The meter uses the diverging pair blue<->red (validated CVD-safe, normal-vision
+   dE 32.3 light / 29.0 dark). Status colors green<->red are NOT separable under
+   deuteranopia (dE 2.5), so every status is also carried by a glyph and a word.
+   Never make a state distinguishable by color alone here. */
+:root {
+  color-scheme: light;
+  --plane:        #f9f9f7;
+  --surface:      #fcfcfb;
+  --ink:          #0b0b0b;
+  --ink-2:        #52514e;
+  --ink-muted:    #898781;
+  --grid:         #e1e0d9;
+  --axis:         #c3c2b7;
+  --border:       rgba(11,11,11,0.10);
+  --pole-neg:     #2a78d6;  /* z below -entry: GLD cheap, long the spread */
+  --pole-pos:     #e34948;  /* z above +entry: GLD rich, short the spread */
+  --neutral-band: #f0efec;
+  --good:         #0ca30c;
+  --warning:      #fab219;
+  --serious:      #ec835a;
+  --critical:     #d03b3b;
+  --good-text:    #006300;
+  --shadow:       0 1px 2px rgba(11,11,11,0.05), 0 4px 12px rgba(11,11,11,0.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --plane:        #0d0d0d;
+    --surface:      #1a1a19;
+    --ink:          #ffffff;
+    --ink-2:        #c3c2b7;
+    --ink-muted:    #898781;
+    --grid:         #2c2c2a;
+    --axis:         #383835;
+    --border:       rgba(255,255,255,0.10);
+    --pole-neg:     #3987e5;
+    --pole-pos:     #e66767;
+    --neutral-band: #383835;
+    --good-text:    #0ca30c;
+    --shadow:       none;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding: 20px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 16px; }
+
+header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 13px; margin: 0 0 12px; color: var(--ink-2); font-weight: 600;
+     text-transform: uppercase; letter-spacing: 0.06em; }
+.sub { color: var(--ink-muted); font-size: 13px; }
+
+.card { background: var(--surface); border: 1px solid var(--border);
+        border-radius: 10px; padding: 16px; box-shadow: var(--shadow); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+        font-weight: 600; padding: 3px 9px; border-radius: 999px;
+        border: 1px solid var(--border); color: var(--ink-2);
+        background: var(--plane); white-space: nowrap; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-muted); }
+.pill.open   .dot { background: var(--good); }
+.pill.closed .dot { background: var(--ink-muted); }
+.pill.live   { border-color: var(--critical); color: var(--critical); }
+.pill.live   .dot { background: var(--critical); }
+
+/* KPI row */
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+@media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+.kpi .label { font-size: 12px; color: var(--ink-muted); text-transform: uppercase;
+              letter-spacing: 0.05em; }
+.kpi .value { font-size: 26px; font-weight: 600; letter-spacing: -0.02em;
+              margin-top: 2px; }
+.kpi .note  { font-size: 12px; color: var(--ink-muted); }
+
+/* Signal */
+.signal-top { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+              justify-content: space-between; }
+.hero { display: flex; align-items: baseline; gap: 10px; }
+.hero .z { font-size: 48px; font-weight: 650; letter-spacing: -0.03em; line-height: 1; }
+.hero .zlabel { font-size: 13px; color: var(--ink-muted); }
+.action { display: inline-flex; align-items: center; gap: 8px; font-size: 14px;
+          font-weight: 650; padding: 6px 12px; border-radius: 8px;
+          border: 1px solid var(--border); background: var(--plane); }
+.action .glyph { font-size: 15px; line-height: 1; }
+.action[data-state="enter"] { color: var(--good-text); border-color: var(--good); }
+.action[data-state="exit"]  { color: var(--ink); border-color: var(--axis); }
+.action[data-state="stop"]  { color: var(--critical); border-color: var(--critical); }
+.action[data-state="maintain"] { color: var(--ink-2); border-color: var(--warning); }
+.action[data-state="none"], .action[data-state="skip"] { color: var(--ink-muted); }
+.reason { color: var(--ink-2); margin-top: 10px; font-size: 14px; }
+.blocked { margin-top: 10px; font-size: 13px; color: var(--ink-2);
+           border-left: 3px solid var(--warning); padding: 6px 10px;
+           background: var(--plane); border-radius: 0 6px 6px 0; }
+.facts { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 14px;
+         font-size: 13px; color: var(--ink-2); }
+.facts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 600; color: var(--ink-muted); font-size: 11px;
+     text-transform: uppercase; letter-spacing: 0.05em; padding: 0 8px 6px 0;
+     border-bottom: 1px solid var(--grid); }
+td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--grid);
+     font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; padding-right: 14px; }
+td.num:last-child, th.num:last-child { padding-right: 0; }
+.muted { color: var(--ink-muted); }
+.empty { color: var(--ink-muted); font-size: 13px; padding: 8px 0; }
+
+/* Controls */
+.controls { display: grid; gap: 10px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 14px;
+         border-radius: 8px; border: 1px solid var(--axis); background: var(--surface);
+         color: var(--ink); cursor: pointer; }
+button:hover:not(:disabled) { background: var(--plane); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.danger { border-color: var(--critical); color: var(--critical); }
+button.primary { border-color: var(--ink); }
+input[type="number"] { font: inherit; font-size: 13px; width: 72px; padding: 7px 8px;
+    border-radius: 8px; border: 1px solid var(--axis); background: var(--surface);
+    color: var(--ink); }
+label.inline { font-size: 13px; color: var(--ink-2); display: inline-flex;
+               align-items: center; gap: 6px; }
+.hint { font-size: 12px; color: var(--ink-muted); }
+
+.banner { border: 1px solid var(--critical); border-left-width: 4px;
+          border-radius: 8px; padding: 10px 14px; background: var(--surface);
+          font-size: 13px; display: flex; gap: 10px; align-items: center;
+          justify-content: space-between; flex-wrap: wrap; }
+.banner strong { color: var(--critical); }
+.errors { border: 1px solid var(--serious); border-left-width: 4px; border-radius: 8px;
+          padding: 10px 14px; background: var(--surface); font-size: 13px;
+          color: var(--ink-2); }
+
+dialog { border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+         background: var(--surface); color: var(--ink); max-width: 420px;
+         box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(0,0,0,0.35); }
+dialog h3 { margin: 0 0 8px; font-size: 16px; }
+dialog p { margin: 0 0 16px; color: var(--ink-2); font-size: 14px; }
+.log { font-size: 12px; color: var(--ink-muted); font-variant-numeric: tabular-nums;
+       white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>autotrader</h1>
+    <span class="pill" id="broker-pill"><span class="dot"></span><span>—</span></span>
+    <span class="pill" id="market-pill"><span class="dot"></span><span>—</span></span>
+    <span style="flex:1"></span>
+    <span class="sub" id="updated">connecting…</span>
+  </header>
+
+  <div id="loop-banner" hidden></div>
+  <div id="errors" class="errors" hidden></div>
+
+  <section class="kpis">
+    <div class="card kpi"><div class="label">Equity</div>
+      <div class="value" id="equity">—</div><div class="note" id="strategy-note">—</div></div>
+    <div class="card kpi"><div class="label">Cash</div>
+      <div class="value" id="cash">—</div><div class="note">settled</div></div>
+    <div class="card kpi"><div class="label">Buying power</div>
+      <div class="value" id="bp">—</div><div class="note">available</div></div>
+    <div class="card kpi"><div class="label">Position</div>
+      <div class="value" id="posture">—</div><div class="note" id="posture-note">—</div></div>
+  </section>
+
+  <section class="card">
+    <div class="signal-top">
+      <div>
+        <h2>Current signal</h2>
+        <div class="hero">
+          <span class="z" id="zvalue">—</span>
+          <span class="zlabel">z-score of log(<span id="sym-a">A</span> / <span id="sym-b">B</span>)</span>
+        </div>
+      </div>
+      <div class="action" id="action" data-state="none">
+        <span class="glyph" id="action-glyph">•</span><span id="action-label">—</span>
+      </div>
+    </div>
+
+    <svg id="meter" viewBox="0 0 900 108" preserveAspectRatio="none"
+         style="width:100%;height:108px;margin-top:16px" role="img"
+         aria-labelledby="meter-title"><title id="meter-title">z-score against entry, exit and stop bands</title></svg>
+
+    <div class="reason" id="reason">—</div>
+    <div class="blocked" id="blocked" hidden></div>
+    <div class="facts" id="facts"></div>
+  </section>
+
+  <div class="cols">
+    <section class="card">
+      <h2>Positions</h2>
+      <div id="positions"></div>
+    </section>
+
+    <section class="card">
+      <h2>Controls</h2>
+      <div class="controls">
+        <div class="row">
+          <button id="btn-dry">Preview (dry run)</button>
+          <button id="btn-exec" class="primary">Run now &amp; trade</button>
+          <button id="btn-flat" class="danger">Flatten</button>
+        </div>
+        <div class="row">
+          <label class="inline">Loop every
+            <input type="number" id="interval" min="30" step="30" value="900"> s
+          </label>
+          <label class="inline">
+            <input type="checkbox" id="loop-dry"> dry run only
+          </label>
+          <button id="btn-loop">Start loop</button>
+        </div>
+        <div class="hint" id="loop-hint">
+          The loop runs inside this server. Closing the browser tab does not stop
+          it — use Stop, or Ctrl-C in the terminal.
+        </div>
+        <div class="log" id="result"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="cols">
+    <section class="card"><h2>Recent signals</h2><div id="signals"></div></section>
+    <section class="card"><h2>Recent orders</h2><div id="orders"></div></section>
+  </div>
+
+  <p class="sub">Paper trading only. Nothing here is investment advice.</p>
+</div>
+
+<dialog id="confirm">
+  <h3 id="confirm-title">Are you sure?</h3>
+  <p id="confirm-body"></p>
+  <div class="row" style="justify-content:flex-end">
+    <button id="confirm-no">Cancel</button>
+    <button id="confirm-yes" class="danger">Confirm</button>
+  </div>
+</dialog>
+
+<script>
+const TOKEN = new URLSearchParams(location.search).get("t") || "";
+const REFRESH_MS = 15000;
+const money = new Intl.NumberFormat(undefined, {style:"currency", currency:"USD", maximumFractionDigits:0});
+const money2 = new Intl.NumberFormat(undefined, {style:"currency", currency:"USD", minimumFractionDigits:2});
+const $ = (id) => document.getElementById(id);
+let state = null, timer = null, busy = false;
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: {"X-Auth-Token": TOKEN, "Content-Type": "application/json", ...(options.headers||{})},
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || body.error || `HTTP ${res.status}`);
+  return body;
+}
+
+/* ---------- rendering ---------- */
+
+const ACTIONS = {
+  enter:    {glyph: "▶", label: "Enter"},
+  maintain: {glyph: "●", label: "Holding"},
+  exit:     {glyph: "■", label: "Exit"},
+  stop:     {glyph: "⚠", label: "Stop out"},
+  none:     {glyph: "—", label: "No trade"},
+  skip:     {glyph: "…", label: "Not enough data"},
+};
+
+function renderMeter(z, params) {
+  const entry = Number(params.entry_z ?? 2), exit = Number(params.exit_z ?? 0.5),
+        stop = Number(params.stop_z ?? 3.5);
+  const DOM = Math.max(stop + 0.75, Math.abs(z ?? 0) + 0.6);
+  const W = 900, PAD = 26, TRACK_Y = 46, H = 26;
+  const x = (v) => PAD + ((v + DOM) / (2 * DOM)) * (W - 2 * PAD);
+  const GAP = 2;  // surface gap between adjacent fills
+  const parts = [];
+
+  // Zones, outermost first. Beyond the stop band we stand aside, so it is drawn
+  // as inert hatch rather than a pole color -- it is not a stronger signal.
+  const zones = [
+    [-DOM, -stop, "hatch", "stand aside"],
+    [-stop, -entry, "neg", "long " + (params.symbol_a || "A")],
+    [-entry, -exit, "neutral", ""],
+    [-exit, exit, "neutral-strong", "flat"],
+    [exit, entry, "neutral", ""],
+    [entry, stop, "pos", "short " + (params.symbol_a || "A")],
+    [stop, DOM, "hatch", "stand aside"],
+  ];
+  const fill = {
+    neg: "var(--pole-neg)", pos: "var(--pole-pos)",
+    neutral: "var(--neutral-band)", "neutral-strong": "var(--neutral-band)",
+    hatch: "url(#hatch)",
+  };
+  zones.forEach(([a, b, kind], i) => {
+    const x0 = x(a) + (i === 0 ? 0 : GAP / 2), x1 = x(b) - (i === zones.length - 1 ? 0 : GAP / 2);
+    const round = (i === 0 || i === zones.length - 1) ? 4 : 0;
+    parts.push(`<rect x="${x0.toFixed(1)}" y="${TRACK_Y}" width="${Math.max(x1-x0,0).toFixed(1)}"
+      height="${H}" rx="${round}" fill="${fill[kind]}"
+      opacity="${kind === "neutral" ? 0.55 : 1}"/>`);
+  });
+
+  // Threshold ticks, directly labeled.
+  for (const [v, name] of [[-stop,"stop"],[-entry,"entry"],[-exit,"exit"],
+                           [exit,"exit"],[entry,"entry"],[stop,"stop"]]) {
+    parts.push(`<line x1="${x(v).toFixed(1)}" y1="${TRACK_Y-5}" x2="${x(v).toFixed(1)}"
+      y2="${TRACK_Y+H+5}" stroke="var(--axis)" stroke-width="1"/>`);
+    parts.push(`<text x="${x(v).toFixed(1)}" y="${TRACK_Y+H+20}" font-size="11"
+      fill="var(--ink-muted)" text-anchor="middle">${name} ${v > 0 ? "+" : ""}${v}</text>`);
+  }
+
+  // Zone captions for the two tradeable arms.
+  for (const [a, b, , caption] of zones) {
+    if (!caption || caption === "flat" || caption === "stand aside") continue;
+    parts.push(`<text x="${((x(a)+x(b))/2).toFixed(1)}" y="${TRACK_Y+17}" font-size="11"
+      fill="#fcfcfb" text-anchor="middle" font-weight="600">${caption}</text>`);
+  }
+
+  // Current value: a marker plus a direct label, never color alone.
+  if (Number.isFinite(z)) {
+    const px = x(Math.max(-DOM, Math.min(DOM, z)));
+    parts.push(`<line x1="${px.toFixed(1)}" y1="${TRACK_Y-10}" x2="${px.toFixed(1)}"
+      y2="${TRACK_Y-6}" stroke="var(--ink)" stroke-width="2"/>`);
+    parts.push(`<path d="M ${(px-6).toFixed(1)} ${TRACK_Y-7} L ${(px+6).toFixed(1)} ${TRACK_Y-7}
+      L ${px.toFixed(1)} ${TRACK_Y+2} Z" fill="var(--ink)"
+      stroke="var(--surface)" stroke-width="1.5" stroke-linejoin="round"/>`);
+    parts.push(`<text x="${px.toFixed(1)}" y="${TRACK_Y-18}" font-size="13" font-weight="700"
+      fill="var(--ink)" text-anchor="middle">z ${z >= 0 ? "+" : ""}${z.toFixed(2)}</text>`);
+  }
+  parts.push(`<text x="${PAD}" y="${TRACK_Y+H+36}" font-size="11" fill="var(--ink-muted)">
+    ${params.symbol_a || "A"} cheap</text>`);
+  parts.push(`<text x="${W-PAD}" y="${TRACK_Y+H+36}" font-size="11" fill="var(--ink-muted)"
+    text-anchor="end">${params.symbol_a || "A"} rich</text>`);
+
+  $("meter").innerHTML =
+    `<title id="meter-title">z-score against entry, exit and stop bands</title>
+     <defs><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse"
+       patternTransform="rotate(45)">
+       <rect width="7" height="7" fill="var(--neutral-band)"/>
+       <line x1="0" y1="0" x2="0" y2="7" stroke="var(--ink-muted)" stroke-width="1.5" opacity="0.5"/>
+     </pattern></defs>` + parts.join("");
+}
+
+function renderPositions(rows) {
+  if (!rows || !rows.length) { $("positions").innerHTML = '<div class="empty">No open positions.</div>'; return; }
+  const body = rows.map(p => `<tr>
+      <td><b>${p.symbol}</b>${p.is_strategy_leg ? "" : ' <span class="muted">(not this strategy)</span>'}</td>
+      <td>${p.side}</td>
+      <td class="num">${p.qty}</td>
+      <td class="num">${money2.format(p.avg_entry_price)}</td>
+      <td class="num">${money2.format(p.market_value)}</td>
+    </tr>`).join("");
+  $("positions").innerHTML = `<table><thead><tr><th>Symbol</th><th>Side</th>
+    <th class="num">Qty</th><th class="num">Avg entry</th><th class="num">Value</th>
+    </tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function shortTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(+d) ? iso : d.toLocaleString(undefined,
+    {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+}
+
+function renderActivity(activity) {
+  const sigs = activity?.signals || [];
+  $("signals").innerHTML = sigs.length ? `<table><thead><tr><th>When</th><th>Action</th>
+    <th class="num">z</th><th>Why</th></tr></thead><tbody>` + sigs.map(s => {
+      let z = null;
+      try { z = JSON.parse(s.metrics || "{}").z; } catch {}
+      return `<tr><td class="muted">${shortTime(s.ts)}</td><td>${s.action}</td>
+        <td class="num">${typeof z === "number" ? (z>=0?"+":"") + z.toFixed(2) : "—"}</td>
+        <td class="muted">${(s.reason || "").replace(/</g,"&lt;")}</td></tr>`;
+    }).join("") + "</tbody></table>" : '<div class="empty">Nothing recorded yet.</div>';
+
+  const ords = activity?.orders || [];
+  $("orders").innerHTML = ords.length ? `<table><thead><tr><th>When</th><th>Order</th>
+    <th>Status</th><th>Mode</th></tr></thead><tbody>` + ords.map(o => `<tr>
+      <td class="muted">${shortTime(o.ts)}</td>
+      <td>${o.side.toUpperCase()} ${o.qty} ${o.symbol}</td>
+      <td>${o.error ? '<span style="color:var(--critical)">' + o.status + '</span>' : o.status}</td>
+      <td class="muted">${o.dry_run ? "dry run" : "live"}</td></tr>`).join("")
+    + "</tbody></table>" : '<div class="empty">No orders yet.</div>';
+}
+
+function render(s) {
+  state = s;
+  const params = {...(s.strategy?.params || {}),
+                  symbol_a: s.strategy?.symbols?.[0], symbol_b: s.strategy?.symbols?.[1]};
+  $("sym-a").textContent = params.symbol_a || "A";
+  $("sym-b").textContent = params.symbol_b || "B";
+
+  const bp = $("broker-pill");
+  bp.className = "pill" + (s.broker?.paper ? "" : " live");
+  bp.lastElementChild.textContent = s.broker?.name
+    ? `${s.broker.name} · ${s.broker.paper ? "paper" : "LIVE MONEY"}` : "—";
+
+  const mp = $("market-pill");
+  mp.className = "pill " + (s.market?.is_open ? "open" : "closed");
+  mp.lastElementChild.textContent = s.market
+    ? (s.market.is_open ? "market open" : "market closed") : "market unknown";
+
+  $("equity").textContent = s.account ? money.format(s.account.equity) : "—";
+  $("cash").textContent = s.account ? money.format(s.account.cash) : "—";
+  $("bp").textContent = s.account ? money.format(s.account.buying_power) : "—";
+  $("strategy-note").textContent = s.strategy?.name || "";
+
+  const legs = (s.positions || []).filter(p => p.is_strategy_leg);
+  // The spread's direction is defined by leg A, not by whichever symbol sorts
+  // first -- long GLD / short GDX is a LONG spread even though GDX leads.
+  const legA = legs.find(p => p.symbol === params.symbol_a);
+  $("posture").textContent = legs.length
+    ? (legA ? (legA.qty > 0 ? "Long spread" : "Short spread") : "Partial")
+    : "Flat";
+  $("posture-note").textContent = legs.length
+    ? legs.map(p => `${p.qty > 0 ? "+" : ""}${p.qty} ${p.symbol}`).join(" / ") : "no open legs";
+
+  const sig = s.signal || {};
+  const z = typeof sig.metrics?.z === "number" ? sig.metrics.z : null;
+  $("zvalue").textContent = z === null ? "—" : (z >= 0 ? "+" : "") + z.toFixed(2);
+  const meta = ACTIONS[sig.action] || ACTIONS.none;
+  $("action").dataset.state = sig.action || "none";
+  $("action-glyph").textContent = meta.glyph;
+  $("action-label").textContent = meta.label;
+  $("reason").textContent = sig.reason || sig.error || "—";
+  renderMeter(z, params);
+
+  if (sig.blocked) { $("blocked").hidden = false; $("blocked").textContent = "Not trading: " + sig.blocked; }
+  else $("blocked").hidden = true;
+
+  const m = sig.metrics || {};
+  $("facts").innerHTML = typeof m.price_a === "number" ? `
+    <span>${params.symbol_a} <b>${money2.format(m.price_a)}</b></span>
+    <span>${params.symbol_b} <b>${money2.format(m.price_b)}</b></span>
+    <span>ratio <b>${(m.ratio ?? 0).toFixed(4)}</b></span>
+    <span>window mean <b>${(m.spread_mean ?? 0).toFixed(4)}</b></span>
+    <span>sd <b>${(m.spread_stdev ?? 0).toFixed(4)}</b></span>
+    <span>bars <b>${Math.round(m.bars_used ?? 0)}</b></span>` : "";
+
+  renderPositions(s.positions);
+  renderActivity(s.activity);
+
+  const loop = s.loop || {};
+  $("btn-loop").textContent = loop.running ? "Stop loop" : "Start loop";
+  $("btn-loop").className = loop.running ? "danger" : "";
+  $("interval").disabled = loop.running;
+  $("loop-dry").disabled = loop.running;
+  const banner = $("loop-banner");
+  if (loop.running) {
+    banner.hidden = false;
+    banner.className = "banner";
+    banner.innerHTML = `<span><strong>Trading loop is running</strong> —
+      every ${loop.interval}s, ${loop.dry_run ? "dry run only" : "placing orders"}.
+      ${loop.runs} run(s) so far. Next around ${shortTime(loop.next_run_at)}.</span>`;
+  } else banner.hidden = true;
+
+  const errs = s.errors || [];
+  $("errors").hidden = !errs.length;
+  $("errors").textContent = errs.join(" · ");
+  $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+}
+
+/* ---------- actions ---------- */
+
+function confirmAction(title, body) {
+  return new Promise((resolve) => {
+    $("confirm-title").textContent = title;
+    $("confirm-body").textContent = body;
+    const dlg = $("confirm");
+    const done = (ok) => { dlg.close(); resolve(ok); };
+    $("confirm-yes").onclick = () => done(true);
+    $("confirm-no").onclick = () => done(false);
+    dlg.showModal();
+  });
+}
+
+function describe(result) {
+  if (result.error) return "Error: " + result.error;
+  if (result.skipped_reason) return "No action: " + result.skipped_reason;
+  if (!result.orders?.length) return "Nothing to do — the portfolio already matches the target.";
+  const lines = result.orders.map(o => `${o.side.toUpperCase()} ${o.qty} ${o.symbol} (${o.intent})`);
+  const head = result.executed ? "Submitted:" : "Would submit (nothing sent):";
+  const fills = (result.results || []).map(r =>
+    `  ${r.symbol}: ${r.error ? "REJECTED — " + r.error : r.status}`);
+  return [head, ...lines.map(l => "  " + l), ...fills].join("\n");
+}
+
+// Only the control buttons lock during an action. Disabling every button on
+// the page would also disable the confirmation dialog's own Cancel/Confirm,
+// which deadlocks every action that asks for confirmation.
+const controlButtons = () => document.querySelectorAll(".controls button");
+
+async function act(fn) {
+  if (busy) return;
+  busy = true;
+  controlButtons().forEach(b => b.disabled = true);
+  $("result").textContent = "working…";
+  try {
+    $("result").textContent = await fn();
+  } catch (err) {
+    $("result").textContent = "Error: " + err.message;
+  } finally {
+    busy = false;
+    controlButtons().forEach(b => b.disabled = false);
+    await refresh();
+  }
+}
+
+$("btn-dry").onclick = () => act(async () =>
+  describe(await api("/api/run", {method:"POST",
+    body: JSON.stringify({dry_run: true, ignore_market_hours: true})})));
+
+$("btn-exec").onclick = () => act(async () => {
+  const sig = state?.signal || {};
+  const plan = sig.orders?.length
+    ? sig.orders.map(o => `${o.side.toUpperCase()} ${o.qty} ${o.symbol}`).join(", ")
+    : "no orders are currently indicated";
+  const ok = await confirmAction("Place orders on the paper account?",
+    `Current signal: ${sig.action || "unknown"}. Planned: ${plan}.`);
+  if (!ok) return "Cancelled.";
+  return describe(await api("/api/run", {method:"POST", body: JSON.stringify({dry_run: false})}));
+});
+
+$("btn-flat").onclick = () => act(async () => {
+  const legs = (state?.positions || []).filter(p => p.is_strategy_leg);
+  if (!legs.length) return "Already flat — nothing to close.";
+  const ok = await confirmAction("Close every leg?",
+    "This closes " + legs.map(p => `${p.qty} ${p.symbol}`).join(" and ") +
+    " at market, regardless of the signal.");
+  if (!ok) return "Cancelled.";
+  return describe(await api("/api/flatten", {method:"POST", body: JSON.stringify({dry_run:false})}));
+});
+
+$("btn-loop").onclick = () => act(async () => {
+  if (state?.loop?.running) {
+    await api("/api/loop", {method:"POST", body: JSON.stringify({action:"stop"})});
+    return "Loop stopped.";
+  }
+  const interval = Math.max(30, parseInt($("interval").value, 10) || 900);
+  const dry = $("loop-dry").checked;
+  const ok = await confirmAction("Start the automated loop?",
+    dry ? `It will evaluate every ${interval}s and place nothing.`
+        : `It will evaluate every ${interval}s and PLACE ORDERS automatically. ` +
+          `It keeps running even if you close this tab — stop it here or with Ctrl-C.`);
+  if (!ok) return "Cancelled.";
+  await api("/api/loop", {method:"POST",
+    body: JSON.stringify({action:"start", interval, dry_run: dry})});
+  return "Loop started.";
+});
+
+/* ---------- polling ---------- */
+
+async function refresh() {
+  try {
+    render(await api("/api/state"));
+  } catch (err) {
+    $("updated").textContent = "connection problem";
+    $("errors").hidden = false;
+    $("errors").textContent = err.message;
+  }
+}
+
+function schedule() {
+  clearInterval(timer);
+  timer = setInterval(() => { if (!document.hidden && !busy) refresh(); }, REFRESH_MS);
+}
+
+if (!TOKEN) {
+  $("updated").textContent = "missing access token";
+  $("errors").hidden = false;
+  $("errors").textContent =
+    "Open the dashboard using the full URL printed in the terminal — it carries the access token.";
+} else {
+  refresh();
+  schedule();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+}
+</script>
+</body>
+</html>

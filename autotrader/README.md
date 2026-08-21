@@ -6,6 +6,7 @@ strategies sit behind interfaces, so adding Robinhood, Tastytrade, or a second
 strategy is a new file rather than a rewrite.
 
 ```
+trader gui             # dashboard in your browser
 trader backtest        # how would this have done?
 trader signal          # what does the strategy think right now?
 trader run --once      # evaluate and place the resulting orders
@@ -32,6 +33,8 @@ trader.bat run --once --dry-run
 ./setup.sh
 ./trader.sh status
 ```
+
+Then, for the dashboard: `./gui.sh` (macOS/Linux) or `gui.bat` (Windows).
 
 Setup needs **Python 3.11 or newer** — the config loader uses `tomllib`, which
 landed in 3.11.
@@ -153,6 +156,7 @@ continuous rebalancing.
 | `trader positions` | open positions at the broker |
 | `trader close` | flatten every leg this strategy trades, ignoring the signal |
 | `trader history` / `--orders` | recorded signals or orders from the local database |
+| `trader gui` | serve the dashboard on localhost and open it |
 | `trader list` | registered brokers and strategies |
 
 On Windows every command above is `trader.bat <command>`; on macOS/Linux,
@@ -203,6 +207,48 @@ leg_weight = 0.10     # fraction of equity per leg
 State lives in SQLite at `~/.autotrader/autotrader.db`: one row per evaluation,
 with the signal, its metrics, the orders, and a position snapshot. Logs rotate
 at `~/.autotrader/autotrader.log`.
+
+## The dashboard
+
+```bash
+./gui.sh          # macOS / Linux   (Windows: gui.bat)
+```
+
+It starts a small server on `127.0.0.1:8787` and opens your browser. One page:
+account, market status, open positions, and the current signal drawn against its
+entry, exit, and stop bands — plus controls to preview a run, trade now, flatten,
+and start or stop the automated loop.
+
+It runs the same Engine and Strategy the CLI does. The browser is another front
+end, not a second implementation, so the dashboard cannot drift from what
+`trader run` would do.
+
+Backtests and parameter sweeps stay in the CLI.
+
+### What it does to stay safe
+
+It can place orders, so it is not just an open port on your machine:
+
+- **Loopback only.** Binds `127.0.0.1`; nothing off the machine can reach it.
+  `--host` warns and asks before doing anything else.
+- **Per-run token.** A fresh random token goes into the URL the terminal prints,
+  and the page sends it as a header on every API call. Custom headers need a CORS
+  preflight that is never granted, so a website you have open in another tab
+  cannot drive this API.
+- **Host header check.** Requests must arrive addressed to a loopback name. This
+  is what defeats DNS rebinding — an attacker's domain resolving to 127.0.0.1
+  still arrives with the wrong `Host`.
+- **Confirmation on anything that trades.** Placing orders, flattening, and
+  starting the loop each show exactly what will happen first.
+- **A floor on the loop interval** (30s), so a stray spinner cannot hammer the
+  broker's API.
+
+### The loop keeps running
+
+The automated loop lives in the server process, not the page. **Closing the
+browser tab does not stop it.** Stop it with the button, or Ctrl-C in the
+terminal running the server. The dashboard shows a persistent banner whenever it
+is active, and the terminal logs every start and stop.
 
 ## Backtesting
 
@@ -348,8 +394,9 @@ Rough order of usefulness:
 .venv/bin/python -m pytest -q
 ```
 
-128 tests, no network required — the suite runs against an in-memory fake broker
+151 tests, no network required — the suite runs against an in-memory fake broker
 and synthetic price series constructed to hit exact z-scores. The backtest is
 covered by a scripted strategy that isolates replay and portfolio accounting
 from the signal math, and the Alpaca adapter's own logic is tested with the SDK
-client stubbed out.
+client stubbed out. The dashboard is covered through its HTTP surface,
+including the access-control guards and the background loop.
